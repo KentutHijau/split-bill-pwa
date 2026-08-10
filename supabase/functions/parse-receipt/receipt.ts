@@ -108,7 +108,7 @@ export const receiptSchema = {
     'warnings',
   ],
   properties: {
-    merchantName: { type: ['string', 'null'] },
+    merchantName: { type: 'string', nullable: true },
     items: {
       type: 'array',
       maxItems: MAX_ITEMS,
@@ -117,32 +117,33 @@ export const receiptSchema = {
         required: ['name', 'quantity', 'unitPriceCents', 'lineTotalCents'],
         properties: {
           name: { type: 'string' },
-          quantity: { type: ['integer', 'null'] },
-          unitPriceCents: { type: ['integer', 'null'] },
-          lineTotalCents: { type: ['integer', 'null'] },
+          quantity: { type: 'integer', nullable: true },
+          unitPriceCents: { type: 'integer', nullable: true },
+          lineTotalCents: { type: 'integer', nullable: true },
         },
       },
     },
-    subtotalCents: { type: ['integer', 'null'] },
-    serviceCharges: { $ref: '#/$defs/adjustments' },
-    taxes: { $ref: '#/$defs/adjustments' },
-    discounts: { $ref: '#/$defs/adjustments' },
-    otherAdjustments: { $ref: '#/$defs/adjustments' },
-    grandTotalCents: { type: ['integer', 'null'] },
+    subtotalCents: { type: 'integer', nullable: true },
+    serviceCharges: adjustmentSchema(),
+    taxes: adjustmentSchema(),
+    discounts: adjustmentSchema(),
+    otherAdjustments: adjustmentSchema(),
+    grandTotalCents: { type: 'integer', nullable: true },
     warnings: { type: 'array', items: { type: 'string' }, maxItems: 30 },
   },
-  $defs: {
-    adjustments: {
-      type: 'array',
-      maxItems: MAX_ADJUSTMENTS,
-      items: {
-        type: 'object',
-        required: ['label', 'amountCents'],
-        properties: {
-          label: { type: 'string' },
-          amountCents: { type: 'integer' },
-        },
+};
+
+function adjustmentSchema() {
+  return {
+    type: 'array',
+    maxItems: MAX_ADJUSTMENTS,
+    items: {
+      type: 'object',
+      required: ['label', 'amountCents'],
+      properties: {
+        label: { type: 'string' },
+        amountCents: { type: 'integer' },
       },
     },
-  },
-};
+  };
+}
