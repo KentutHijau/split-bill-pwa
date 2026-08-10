@@ -7,7 +7,13 @@ export const OCR_MAX_LONG_EDGE = 2400;
 export const PREPROCESSING_VERSION = 'makan-ocr-v2';
 export const OCR_LANGUAGE = 'eng';
 export const TESSERACT_VERSION = '6.0.1';
-export const OCR_PSM = '6 (single uniform block)';
+// Receipts mix headers, item rows, modifiers, and totals with different
+// indentation and font sizes. PSM 6 tries to force all of those regions into
+// one uniform block and can consequently discard an otherwise legible row.
+// PSM 4 still preserves reading order, but lets Tesseract segment variable-size
+// text within the receipt's single column.
+export const OCR_PAGE_SEGMENTATION_MODE = PSM.SINGLE_COLUMN;
+export const OCR_PSM = '4 (single column, variable-size text)';
 
 export interface Dimensions { width: number; height: number }
 
@@ -145,7 +151,7 @@ export class LocalOcrReceiptParser implements ReceiptParser {
     }});
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1' });
+      await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEGMENTATION_MODE, preserve_interword_spaces: '1' });
       const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(
         'Reading timed out. Please retry with a clearer, closely cropped photo.')), 120_000); });
       const result = await Promise.race([worker.recognize(prepared.blob), timeout]);
