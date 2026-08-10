@@ -1,14 +1,21 @@
 import { allocateProportionally, splitEvenly } from './money';
 import type { Bill, Cents, ParticipantBreakdown, Receipt } from './types';
 export const calculatedReceiptTotal = (r: Receipt): Cents =>
-  r.items.reduce((s, i) => s + i.lineTotal, 0) +
+  r.subtotal +
   r.adjustments.reduce((s, a) => s + a.amount, 0);
+export const detectedItemsTotal = (r: Receipt): Cents =>
+  r.items.reduce((sum, item) => sum + item.lineTotal, 0);
 export const reconcile = (r: Receipt) => {
   const calculated = calculatedReceiptTotal(r);
+  const itemsTotal = detectedItemsTotal(r);
   return {
     calculated,
     difference: r.grandTotal - calculated,
     reconciled: Math.abs(r.grandTotal - calculated) <= 1,
+    itemsTotal,
+    itemsDifference: r.subtotal - itemsTotal,
+    itemsReconciled:
+      r.explicitSubtotalDetected !== false && Math.abs(r.subtotal - itemsTotal) <= 1,
   };
 };
 export function calculateBill(bill: Bill) {

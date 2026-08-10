@@ -13,15 +13,41 @@ export interface ReceiptAdjustment {
   kind: AdjustmentKind;
   amount: Cents;
 }
+export interface OcrDiagnostics {
+  sourceFileName: string;
+  sourceMimeType: string;
+  sourceFileSize: number;
+  originalWidth: number;
+  originalHeight: number;
+  exifOrientation: number;
+  orientationTransform: string;
+  normalizedWidth: number;
+  normalizedHeight: number;
+  maximumDimension: number;
+  preprocessingVersion: string;
+  ocrLanguage: string;
+  tesseractVersion: string;
+  engineMode: string;
+  pageSegmentationMode: string;
+  userAgent: string;
+  rawOcrCharacterCount: number;
+  fingerprint: string;
+}
 export interface Receipt {
   restaurantName: string;
   image?: Blob;
   items: ReceiptItem[];
   adjustments: ReceiptAdjustment[];
   subtotal: Cents;
+  /** True only when OCR/manual review supplied the printed receipt subtotal. */
+  explicitSubtotalDetected?: boolean;
   grandTotal: Cents;
   /** Text produced by local OCR. Kept with the receipt for review, never sent. */
   rawOcrText?: string;
+  /** Debug metadata only; contains no OCR text or receipt fields. */
+  ocrDiagnostics?: OcrDiagnostics;
+  /** Exact metadata-free PNG passed to Tesseract, retained for local inspection. */
+  ocrInputImage?: Blob;
   parseWarnings?: string[];
 }
 export type PaymentStatus = 'UNPAID' | 'MARKED_SENT' | 'CONFIRMED_RECEIVED';
