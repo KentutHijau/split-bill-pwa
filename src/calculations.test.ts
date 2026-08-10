@@ -78,6 +78,21 @@ describe('receipt reconciliation', () => {
       reconciled: false,
     });
   });
+  it('reconciles printed totals independently from an incomplete item list', () => {
+    const r = receipt([
+      { id: 's', label: 'Service', kind: 'SERVICE', amount: 442 },
+      { id: 'g', label: 'GST', kind: 'TAX', amount: 438 },
+    ], 5300);
+    r.subtotal = 4420;
+    r.explicitSubtotalDetected = true;
+    expect(reconcile(r)).toMatchObject({
+      calculated: 5300,
+      reconciled: true,
+      itemsTotal: 1001,
+      itemsDifference: 3419,
+      itemsReconciled: false,
+    });
+  });
 });
 describe('bill calculation', () => {
   it('handles neither GST nor service and shared item rounding', () => {
