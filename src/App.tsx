@@ -3,6 +3,7 @@ import { calculateBill, reconcile } from './calculations';
 import { demos } from './demos';
 import { formatMoney, parseMoney } from './money';
 import { IndexedDbBillRepository } from './storage';
+import type { ParseProgress } from './parser';
 import type { AdjustmentKind, Bill, PaymentStatus, Receipt } from './types';
 const repo = new IndexedDbBillRepository();
 const uid = () => crypto.randomUUID();
@@ -49,7 +50,9 @@ export default function App() {
     [receipt, setReceipt] = useState<Receipt>(blank()),
     [bill, setBill] = useState<Bill>(),
     [saved, setSaved] = useState<Bill[]>([]),
-    [override, setOverride] = useState(false);
+    [override, setOverride] = useState(false),
+    [ocrProgress, setOcrProgress] = useState<ParseProgress>(),
+    [ocrError, setOcrError] = useState('');
   useEffect(() => {
     repo.list().then(setSaved);
   }, []);
@@ -58,9 +61,43 @@ export default function App() {
     setReceipt((old) => {
       const next = structuredClone(old);
       fn(next);
-      next.subtotal = next.items.reduce((s, i) => s + i.lineTotal, 0);
       return next;
     });
+  const updateItemSubtotal = (r: Receipt) => {
+    r.subtotal = r.items.reduce((sum, item) => sum + item.lineTotal, 0);
+  };
+  const selectImage = (file?: File) => {
+    if (!file) return;
+    mutateReceipt((r) => {
+      r.image = file;
+      r.rawOcrText = undefined;
+      r.parseWarnings = undefined;
+    });
+    setOcrError('');
+    setOverride(false);
+  };
+  const readReceipt = async () => {
+    if (!receipt.image || ocrProgress) return;
+    setOcrError('');
+    try {
+      const { LocalOcrReceiptParser } = await import('./ocr');
+      const parsed = await new LocalOcrReceiptParser().parse(
+        receipt.image,
+        setOcrProgress,
+      );
+      parsed.image = receipt.image;
+      setReceipt(parsed);
+      setOverride(false);
+    } catch (error) {
+      setOcrError(
+        error instanceof Error
+          ? error.message
+          : 'Receipt reading failed. Please try again.',
+      );
+    } finally {
+      setOcrProgress(undefined);
+    }
+  };
   const startPeople = () => {
     const check = reconcile(receipt);
     if (!check.reconciled && !override) return;
@@ -188,20 +225,29 @@ export default function App() {
             {receipt.image ? (
               <>
                 <BlobImage blob={receipt.image} alt="Receipt preview" />
-                <div>
+                <div className="upload-actions">
                   <label className="secondary">
-                    Replace
+                    📷 Take new photo
                     <input
                       hidden
                       type="file"
                       accept="image/*"
                       capture="environment"
                       onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f)
-                          mutateReceipt((r) => {
-                            r.image = f;
-                          });
+                        selectImage(e.target.files?.[0]);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  <label className="secondary">
+                    🖼️ Choose another
+                    <input
+                      hidden
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        selectImage(e.target.files?.[0]);
+                        e.target.value = '';
                       }}
                     />
                   </label>
@@ -210,6 +256,8 @@ export default function App() {
                     onClick={() =>
                       mutateReceipt((r) => {
                         delete r.image;
+                        delete r.rawOcrText;
+                        delete r.parseWarnings;
                       })
                     }
                   >
@@ -218,26 +266,86 @@ export default function App() {
                 </div>
               </>
             ) : (
-              <label>
-                <span>📷</span>
-                <b>Photograph or upload receipt</b>
-                <small>JPEG, PNG or HEIC from your device</small>
-                <input
-                  hidden
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f)
-                      mutateReceipt((r) => {
-                        r.image = f;
-                      });
-                  }}
-                />
-              </label>
+              <div className="upload-picker">
+                <span className="receipt-icon">🧾</span>
+                <b>Add a receipt image</b>
+                <small>Choose how you want to add it</small>
+                <label className="primary">
+                  📷 Take photo
+                  <input
+                    hidden
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => {
+                      selectImage(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                <label className="secondary">
+                  🖼️ Choose from gallery
+                  <input
+                    hidden
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      selectImage(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
             )}
           </section>
+          {receipt.image && (
+            <section className="ocr-panel">
+              <p>
+                <b>Private, on-device OCR</b>
+                <br />
+                <small>
+                  Your image and detected text are processed locally and are not
+                  uploaded.
+                </small>
+              </p>
+              <button
+                className="primary full"
+                disabled={Boolean(ocrProgress)}
+                onClick={() => void readReceipt()}
+              >
+                {ocrProgress
+                  ? 'Reading…'
+                  : receipt.rawOcrText
+                    ? 'Read receipt again'
+                    : 'Read receipt'}
+              </button>
+              {ocrProgress && (
+                <div className="progress" role="status">
+                  <span>
+                    {
+                      (
+                        {
+                          preparing: 'Preparing image',
+                          reading: 'Reading receipt',
+                          understanding: 'Understanding items',
+                          checking: 'Checking totals',
+                        } as const
+                      )[ocrProgress.stage]
+                    }
+                  </span>
+                  <progress max="1" value={ocrProgress.progress ?? undefined} />
+                </div>
+              )}
+              {ocrError && (
+                <div className="ocr-error" role="alert">
+                  {ocrError}{' '}
+                  <button className="link" onClick={() => void readReceipt()}>
+                    Retry
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
           <div className="demo-row">
             <span>Or load a demo</span>
             {demos.map((d, i) => (
@@ -284,6 +392,7 @@ export default function App() {
                             const x = r.items[index];
                             x.quantity = Number(e.target.value);
                             x.lineTotal = x.quantity * x.unitPrice;
+                            updateItemSubtotal(r);
                           })
                         }
                       />
@@ -306,6 +415,7 @@ export default function App() {
                           const x = r.items[index];
                           x.unitPrice = n;
                           x.lineTotal = x.quantity * n;
+                          updateItemSubtotal(r);
                         }),
                       )}
                     </label>
@@ -315,6 +425,7 @@ export default function App() {
                       onClick={() =>
                         mutateReceipt((r) => {
                           r.items.splice(index, 1);
+                          updateItemSubtotal(r);
                         })
                       }
                     >
@@ -333,6 +444,7 @@ export default function App() {
                         unitPrice: 0,
                         lineTotal: 0,
                       });
+                      updateItemSubtotal(r);
                     })
                   }
                 >
@@ -341,10 +453,14 @@ export default function App() {
               </div>
               <h3>Receipt totals</h3>
               <div className="totals">
-                <div>
-                  <span>Items subtotal</span>
-                  <b>{formatMoney(receipt.subtotal)}</b>
-                </div>
+                <label className="grand">
+                  Receipt subtotal
+                  {moneyInput(receipt.subtotal, (n) =>
+                    mutateReceipt((r) => {
+                      r.subtotal = n;
+                    }),
+                  )}
+                </label>
                 {receipt.adjustments.map((a, index) => (
                   <div key={a.id} className="adjust">
                     <input
@@ -412,6 +528,26 @@ export default function App() {
                   )}
                 </label>
               </div>
+              {receipt.parseWarnings?.length ? (
+                <div className="parse-warning">
+                  <b>Needs review</b>
+                  <ul>
+                    {receipt.parseWarnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="detected">
+                  ✓ Confidently detected — still check against the photo.
+                </p>
+              )}
+              {receipt.rawOcrText !== undefined && (
+                <details className="detected-text">
+                  <summary>View detected text</summary>
+                  <pre>{receipt.rawOcrText || 'No text was detected.'}</pre>
+                </details>
+              )}
               <div className={'reconcile ' + (check.reconciled ? 'ok' : 'bad')}>
                 <span>{check.reconciled ? '✓' : '!'}</span>
                 <div>

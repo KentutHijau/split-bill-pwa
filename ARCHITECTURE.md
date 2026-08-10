@@ -6,7 +6,7 @@
 
 ## Data model
 
-`Bill` is the aggregate root with random UUID, timestamps, creator display name, `Receipt`, `Participant[]`, `ItemAllocation[]`, optional QR blob, and reconciliation override. A `Receipt` contains source-of-truth items, signed adjustments, subtotal, total, and an optional private image. `ReceiptItem` retains quantity, unit price, and explicit line total. `ReceiptAdjustment.kind` distinguishes service, tax, discount, and other while `amount` remains signed. Participants have only UUID, display name, creator flag, and one of `UNPAID`, `MARKED_SENT`, or `CONFIRMED_RECEIVED`.
+`Bill` is the aggregate root with random UUID, timestamps, creator display name, `Receipt`, `Participant[]`, `ItemAllocation[]`, optional QR blob, and reconciliation override. A `Receipt` contains source-of-truth items, signed adjustments, subtotal, total, an optional private image, raw OCR text, and review warnings. `ReceiptItem` retains quantity, unit price, and explicit line total. `ReceiptAdjustment.kind` distinguishes service, tax, discount, and other while `amount` remains signed. Participants have only UUID, display name, creator flag, and one of `UNPAID`, `MARKED_SENT`, or `CONFIRMED_RECEIVED`.
 
 These map cleanly to relational tables without embedding identity or authorization assumptions in the frontend types.
 
@@ -24,11 +24,15 @@ Each explicit receipt adjustment—including fixed GST/service values, negative 
 
 ## Receipt parsing
 
-`ReceiptParser.parse(blob)` returns a normal editable `Receipt`. `DemoReceiptParser` proves the seam. Future OCR should produce confidence and bounding-box metadata in a separate parsing result, normalize known labels (GST, Tax, Svc Chg, Voucher, Total), and require human review. Calculations must never depend on a particular OCR provider.
+`ReceiptParser.parse(blob, progress)` returns a normal editable `Receipt`; both `DemoReceiptParser` and `LocalOcrReceiptParser` implement the seam. The UI deliberately uses separate camera (`capture="environment"`) and gallery (no `capture`) inputs, resets both after selection, retains the original blob, and starts OCR only after an explicit action.
+
+The OCR implementation is lazy-loaded. It creates an orientation-aware bitmap, limits its longest edge to 2400 pixels, applies modest grayscale/contrast enhancement to a temporary canvas, then uses a Tesseract.js Web Worker. The worker is terminated in all outcomes and recognition has a two-minute UI timeout. No receipt pixels or detected text are submitted to a service.
+
+`parseReceiptText` is independently tested and deterministic. It normalizes whitespace, extracts only explicit terminal decimal amounts, recognizes Singapore label variants, signs discounts/vouchers, and conservatively rejects metadata/payment lines. It does not infer GST/service amounts from rates, fabricate missing totals, or insert balancing adjustments. Missing fields and ambiguous quantities create review warnings. Raw text is stored on `Receipt` and shown only in the creator's collapsible review aid. All parsed fields remain editable and feed the existing integer-cent reconciliation immediately. Tesseract confidence/bounding boxes, sophisticated column recovery, and automatic cropping are intentionally deferred; manual comparison with the image is required.
 
 ## Storage
 
-`BillRepository` supplies `list`, `get`, `save`, and `remove`. `IndexedDbBillRepository` is the local implementation and supports `Blob` receipt/QR images without base64 or localStorage. A future remote repository can keep the same application-facing contract, with subscription methods added separately for live changes.
+`BillRepository` supplies `list`, `get`, `save`, and `remove`. `IndexedDbBillRepository` is the local implementation and supports `Blob` receipt/QR images plus raw OCR text without base64 or localStorage. OCR has no analytics or network submission path. A future remote repository can keep the same application-facing contract, with subscription methods added separately for live changes.
 
 ## Sharing and security design
 

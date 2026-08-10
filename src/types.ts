@@ -20,6 +20,9 @@ export interface Receipt {
   adjustments: ReceiptAdjustment[];
   subtotal: Cents;
   grandTotal: Cents;
+  /** Text produced by local OCR. Kept with the receipt for review, never sent. */
+  rawOcrText?: string;
+  parseWarnings?: string[];
 }
 export type PaymentStatus = 'UNPAID' | 'MARKED_SENT' | 'CONFIRMED_RECEIVED';
 export interface Participant {

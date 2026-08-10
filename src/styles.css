@@ -223,6 +223,79 @@ main {
   max-height: 320px;
   border-radius: 12px;
 }
+.upload-picker,
+.upload-actions {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+.upload-picker {
+  padding: 8px;
+}
+.upload-picker label,
+.upload-actions label {
+  min-height: 50px;
+  flex-direction: row;
+  align-items: center;
+}
+.receipt-icon {
+  font-size: 34px;
+}
+.ocr-panel {
+  margin: 14px 0 20px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--mint);
+}
+.ocr-panel p {
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+.progress {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  font-weight: 700;
+}
+.progress progress {
+  width: 100%;
+  accent-color: var(--orange);
+}
+.ocr-error,
+.parse-warning {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff0e8;
+  color: #8b351f;
+}
+.parse-warning ul {
+  margin: 7px 0 0;
+  padding-left: 20px;
+}
+.detected {
+  color: #28734f;
+  font-weight: 700;
+}
+.detected-text {
+  margin: 18px 0;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.detected-text summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.detected-text pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+  padding: 12px;
+  background: #f6f2eb;
+  border-radius: 10px;
+  font-size: 12px;
+}
 .demo-row {
   display: flex;
   align-items: center;
