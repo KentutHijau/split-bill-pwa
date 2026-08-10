@@ -1,0 +1,88 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createParseReceiptHandler } from './handler.ts';
+
+const origin = 'https://kentuthijau.github.io';
+const baseReceipt = {
+  merchantName: null,
+  items: [],
+  subtotalCents: null,
+  serviceCharges: [],
+  taxes: [],
+  discounts: [],
+  otherAdjustments: [],
+  grandTotalCents: null,
+  warnings: [],
+};
+
+const geminiResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+const invoke = async (upstream: Response) => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(upstream);
+  const log = vi.fn();
+  const handler = createParseReceiptHandler({
+    apiKey: 'test-key',
+    allowedOrigins: new Set([origin]),
+    fetch,
+    log,
+  });
+  const response = await handler(new Request('https://example.test/parse-receipt', {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'image/jpeg' },
+    body: new Uint8Array([1, 2, 3]),
+  }));
+  return { response, body: await response.json(), fetch, log };
+};
+
+describe('parse-receipt Gemini diagnostics', () => {
+  it.each([
+    [400, 'INVALID_ARGUMENT'],
+    [401, 'UNAUTHENTICATED'],
+    [403, 'PERMISSION_DENIED'],
+    [404, 'NOT_FOUND'],
+    [429, 'RESOURCE_EXHAUSTED'],
+    [500, 'INTERNAL'],
+  ])('reports safe diagnostics for Gemini %i %s', async (status, code) => {
+    const result = await invoke(geminiResponse({
+      error: { code: status, status: code, message: `Safe detail for ${code}` },
+    }, status));
+    expect(result.response.status).toBe(status === 429 ? 429 : 502);
+    expect(result.body).toEqual({
+      error: 'receipt_service_failed', upstreamStatus: status, upstreamCode: code,
+    });
+    expect(result.log).toHaveBeenCalledWith(expect.stringContaining(`status=${status} code=${code}`));
+    expect(result.log.mock.calls.join(' ')).not.toContain('test-key');
+  });
+
+  it('categorizes a successful response with no candidate', async () => {
+    const result = await invoke(geminiResponse({ candidates: [] }));
+    expect(result.body).toEqual({ error: 'gemini_no_candidate' });
+  });
+
+  it('categorizes a candidate with no text', async () => {
+    const result = await invoke(geminiResponse({ candidates: [{ content: { parts: [] } }] }));
+    expect(result.body).toEqual({ error: 'gemini_no_text' });
+  });
+
+  it('categorizes malformed candidate JSON', async () => {
+    const result = await invoke(geminiResponse({ candidates: [{ content: { parts: [{ text: '{bad' }] } }] }));
+    expect(result.body).toEqual({ error: 'gemini_invalid_json' });
+  });
+
+  it('categorizes schema-invalid candidate JSON', async () => {
+    const result = await invoke(geminiResponse({ candidates: [{ content: { parts: [{ text: '{}' }] } }] }));
+    expect(result.body).toEqual({ error: 'gemini_schema_validation_failed' });
+  });
+
+  it('returns a normalized valid structured response', async () => {
+    const result = await invoke(geminiResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify(baseReceipt) }] } }] }));
+    expect(result.response.status).toBe(200);
+    expect(result.body).toEqual({ receipt: baseReceipt });
+    const request = JSON.parse(String(result.fetch.mock.calls[0]?.[1]?.body));
+    expect(request.generationConfig).toMatchObject({
+      responseMimeType: 'application/json', responseSchema: expect.any(Object),
+    });
+    expect(request.generationConfig.responseJsonSchema).toBeUndefined();
+    expect(request.contents[0].parts[1].inlineData.mimeType).toBe('image/jpeg');
+  });
+});
