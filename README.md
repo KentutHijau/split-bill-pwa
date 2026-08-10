@@ -6,7 +6,7 @@ A friendly, mobile-first Singapore restaurant bill splitter. This production-qua
 
 - React + strict TypeScript on Vite, with a deliberately small dependency set.
 - All monetary values are signed integer cents. The pure calculation module uses deterministic equal splitting and largest-remainder proportional allocation, including the correct adjustment share for unclaimed items.
-- `ReceiptParser` isolates OCR from review and calculations; the current demo parser can later be replaced without changing the workflow.
+- `ReceiptParser` isolates OCR from review and calculations. Demo parsing remains available, while the real implementation lazy-loads Tesseract.js and recognizes images in a browser Web Worker.
 - `BillRepository` isolates persistence. IndexedDB stores full bills and image `Blob`s; it is ready to be swapped for a Supabase implementation.
 - Vite PWA generates the manifest and service worker. Shared URL routes are explicitly excluded from navigation fallback caching so future live bill updates are not masked by stale data.
 
@@ -28,7 +28,15 @@ npm run preview   # serve production build
 
 ## Try the workflow
 
-Choose **Split a bill**, then load demo A, B, or C. Review every extracted field, add people, tap names on each dish, and view the dashboard. Expand a participant row for their transparent total and payment actions. Bills persist on the device.
+Choose **Split a bill**, then use **Take photo** (rear camera where supported), **Choose from gallery** (a separate input with no camera capture hint), or demo A–C. A real image is previewed first; press **Read receipt** to opt into OCR. Review every extracted field, add people, tap names on each dish, and view the dashboard. Images, detected text, and bills persist only on the device.
+
+## Local receipt OCR and review
+
+Tesseract.js is dynamically imported only when **Read receipt** is pressed. The original image is retained for preview and IndexedDB persistence; a temporary, orientation-aware canvas copy is resized to at most 2400 pixels, converted to enhanced grayscale, and passed to the worker. The UI reports preparation, recognition progress, parsing, and reconciliation, prevents duplicate jobs, times out stalled recognition, and permits retry.
+
+The deterministic Singapore parser recognizes explicit item amounts and common subtotal, total, GST/tax, service charge, discount, voucher/promo, and rounding labels. It ignores common metadata lines (dates, times, telephone/card/reference/receipt numbers, tender and change), does not assume tax/service rates, and never creates a price without a decimal amount in the OCR evidence. Missing or uncertain fields are flagged for review. Every merchant, item, quantity, price, subtotal, adjustment, and total stays editable; reconciliation never silently changes an amount. **View detected text** exposes the stored raw OCR text for troubleshooting.
+
+Receipt images and OCR text are **not sent to an OCR service, backend, analytics, or any other participant**. Tesseract's code and English language assets may be downloaded as application dependencies, but recognition runs locally. Manual review is mandatory in practice: shadows, folds, blur, unusual fonts, multi-column layouts, and HEIC/browser support can reduce accuracy. Crop closely, photograph straight-on in even light, and compare every value with the original.
 
 ## PWA testing
 
@@ -48,7 +56,7 @@ Implement `BillRepository` against authenticated Supabase RPC/API calls, store p
 
 ## Prototype limitations
 
-- Receipt parsing is demo/mock based; uploaded photographs are previewed but not sent to OCR.
+- OCR is best-effort and English-only; difficult photos and complex layouts require manual correction, and first use may need a network connection to fetch OCR runtime/language assets.
 - Data and images exist only in this browser's IndexedDB and cannot yet be shared across devices.
 - Payment buttons record assertions, not bank confirmations. There is no PayNow or financial integration.
 - Local-only storage is not a security boundary and should not be treated as multi-user privacy.
