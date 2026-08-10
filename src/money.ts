@@ -43,7 +43,7 @@ export const allocateProportionally = (
     const raw = (absolute * Math.max(0, weights[id])) / total;
     return { id, value: Math.floor(raw), fraction: raw - Math.floor(raw) };
   });
-  let left = absolute - rows.reduce((s, r) => s + r.value, 0);
+  const left = absolute - rows.reduce((s, r) => s + r.value, 0);
   rows.sort((a, b) => b.fraction - a.fraction || a.id.localeCompare(b.id));
   for (let i = 0; i < left; i++) rows[i].value++;
   return Object.fromEntries(rows.map((r) => [r.id, r.value * sign]));
