@@ -2,13 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateOcrDimensions,
   fingerprintPayload,
+  OCR_PAGE_SEGMENTATION_MODE,
+  OCR_PSM,
   orientedDimensions,
   orientationName,
   readExifOrientation,
   sha256Hex,
 } from './ocr';
+import { PSM } from 'tesseract.js';
 
 describe('deterministic OCR preprocessing calculations', () => {
+  it('uses receipt-aware single-column segmentation instead of a uniform block', () => {
+    expect(OCR_PAGE_SEGMENTATION_MODE).toBe(PSM.SINGLE_COLUMN);
+    expect(OCR_PAGE_SEGMENTATION_MODE).not.toBe(PSM.SINGLE_BLOCK);
+    expect(OCR_PSM).toContain('variable-size text');
+  });
   it('caps the long edge and uses Math.round for the short edge', () => {
     expect(calculateOcrDimensions(4032, 3024)).toEqual({ width: 2400, height: 1800 });
     expect(calculateOcrDimensions(1001, 3000)).toEqual({ width: 801, height: 2400 });
