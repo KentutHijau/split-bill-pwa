@@ -83,6 +83,24 @@ describe('receipt reconciliation', () => {
       reconciled: false,
     });
   });
+  it('reconciles the ICHIBANYA receipt while preserving its unresolved items', () => {
+    const r = receipt(
+      [
+        { id: 's', label: 'Service Charges', kind: 'SERVICE', amount: 442 },
+        { id: 'g', label: 'GST', kind: 'TAX', amount: 438 },
+      ],
+      5300,
+    );
+    r.subtotal = 4420;
+    r.subtotalSource = 'DETECTED';
+    r.items[0].lineTotal = 2770;
+    expect(reconcile(r)).toMatchObject({ calculated: 5300, reconciled: true });
+    expect(reconcileItems(r)).toEqual({
+      detectedItems: 2770,
+      difference: 1650,
+      reconciled: false,
+    });
+  });
   it('reports discrepancy and permits a one-cent receipt rounding tolerance', () => {
     expect(reconcile({ ...receipt(), grandTotal: 1002 })).toMatchObject({
       difference: 1,

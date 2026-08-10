@@ -539,6 +539,12 @@ export default function App() {
                   <span>Detected items</span>
                   <strong>{formatMoney(itemCheck.detectedItems)}</strong>
                 </div>
+                {!itemCheck.reconciled && receipt.subtotalSource && (
+                  <div className="grand">
+                    <span>Missing/unresolved item value</span>
+                    <strong>{formatMoney(Math.abs(itemCheck.difference))}</strong>
+                  </div>
+                )}
                 {receipt.adjustments.map((a, index) => (
                   <div key={a.id} className="adjust">
                     <input
@@ -621,10 +627,22 @@ export default function App() {
                 </p>
               )}
               {receipt.rawOcrText !== undefined && (
-                <details className="detected-text">
-                  <summary>View detected text</summary>
-                  <pre>{receipt.rawOcrText || 'No text was detected.'}</pre>
-                </details>
+                <>
+                  {Boolean(receipt.possibleMissedLines?.length) && (
+                    <details className="detected-text">
+                      <summary>Possible missed lines</summary>
+                      <p className="diagnostic-note">
+                        Unclassified text from the receipt’s item area. Review
+                        it against the photo; no items are added automatically.
+                      </p>
+                      <pre>{receipt.possibleMissedLines!.join('\n')}</pre>
+                    </details>
+                  )}
+                  <details className="detected-text">
+                    <summary>View detected text</summary>
+                    <pre>{receipt.rawOcrText || 'No text was detected.'}</pre>
+                  </details>
+                </>
               )}
               <div className={'reconcile ' + (check.reconciled ? 'ok' : 'bad')}>
                 <span>{check.reconciled ? '✓' : '!'}</span>

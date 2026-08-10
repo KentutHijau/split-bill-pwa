@@ -92,6 +92,31 @@ describe('Singapore OCR receipt parser', () => {
     expect(r.grandTotal).toBe(1200);
     expect(r.items.map((item) => item.name)).toEqual(['Rice']);
   });
+  it.each([
+    ['Grand Total 53.00 bug', 5300],
+    ['Grand Total 53.00 !!!©', 5300],
+  ])('accepts harmless noise after an explicit amount: %s', (line, amount) => {
+    expect(parse(`${line}\nMaster Card:#¥¥¥5034 53.00`).grandTotal).toBe(
+      amount,
+    );
+  });
+  it('keeps explicit Grand Total ahead of generic and payment amounts', () => {
+    const r = parse(
+      'Total 52.00\nGrand Total 53.00 bug\nMaster Card:#¥¥¥5034 53.00',
+    );
+    expect(r.grandTotal).toBe(5300);
+    expect(r.items).toHaveLength(0);
+  });
+  it('reports the ICHIBANYA missed value without fabricating an item', () => {
+    const r = parseReceiptText(
+      '£000 TCHIBANYA THE STAR VISTA ...\nQTY ITEM NAME AMOUNT\nVegetable Omelet Curry S.OO\n1 **Cheese 2.00\n1 **Fried Chicken 2.70\n1 Creamed Chicken Omelet Curry 16.50\n1 **Tuna 1.50\n1 **Beef Yakiniku 5.00\nSub Total 44.20\nService Charges 4.42\nGST 4.38\nGrand Total 53.00 bug\nMaster Card:#¥¥¥5034 53.00',
+    );
+    expect(r.restaurantName).toBe('TCHIBANYA THE STAR VISTA');
+    expect(r.items.reduce((sum, item) => sum + item.lineTotal, 0)).toBe(2770);
+    expect(r.items.some((item) => item.name === 'Service Charges')).toBe(false);
+    expect(r.possibleMissedLines).toEqual(['Vegetable Omelet Curry S.OO']);
+    expect(r).toMatchObject({ subtotal: 4420, grandTotal: 5300 });
+  });
   it.each(['Service Charges', 'Service Chgs', 'Svc Charges', 'Svc Chgs'])(
     'classifies plural service label %s before items',
     (label) => {
