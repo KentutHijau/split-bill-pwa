@@ -28,3 +28,9 @@
 ## Phase 5 — polish/public beta
 
 - Conduct accessibility and cross-browser audits, Singapore usability research, localization, performance/telemetry work with consent, security review, operational monitoring, help content, and a staged public beta.
+
+## Receipt extraction (current)
+
+- Smart Scan uses direct Gemini multimodal extraction through a validated Supabase function.
+- Offline Scan retains Tesseract preprocessing, parser, diagnostics and fingerprint.
+- Next: gateway-level quotas/rate limiting before meaningful public traffic.

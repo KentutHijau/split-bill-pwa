@@ -3,3 +3,7 @@ dist
 coverage
 *.tsbuildinfo
 .DS_Store
+.env
+.env.*
+!.env.example
+supabase/.temp/
