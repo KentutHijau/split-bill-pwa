@@ -4,6 +4,18 @@
 
 `App` owns the prototype workflow: home, receipt review, people, claims, and dashboard. Domain types are independent of React. `calculations.ts` and `money.ts` are pure and testable; `parser.ts` and `storage.ts` define replaceable boundaries. Demo receipt fixtures exercise common Singapore receipt shapes.
 
+## Smart Scan architecture and trust boundary
+
+The primary flow is `GitHub Pages PWA → Supabase parse-receipt Edge Function → Gemini multimodal API → normalized ExtractedReceipt → existing editable Receipt`. Gemini receives the image directly, never Tesseract text, and only extracts evidence. `smartScan.ts` maps the shared structured shape into the existing domain; the calculation model is not duplicated. Offline remains `image → deterministic preprocessing → Tesseract.js → parser → editable Receipt`.
+
+The Edge Function defaults centrally to stable Flash-class `gemini-2.5-flash` (server-only `GEMINI_MODEL` can override it). A fixed conservative system prompt treats all receipt text, URLs, QR codes and prompt-like text as untrusted document data. It prohibits invented items, amounts and rates, preserves item rows, and distinguishes subtotal, service, tax, discounts/vouchers, rounding and grand total. Structured JSON schema output is mandatory.
+
+The browser has a 30-second timeout and retains its Blob after failure. The function allows exact configured origins plus local development, handles OPTIONS, accepts POST only, validates image MIME and declared/actual size (8 MiB), fixes the Gemini host/model/prompt, and times upstream out after 25 seconds. It neither logs nor intentionally stores receipt bytes or extracted contents. Controlled errors hide upstream details.
+
+Model output is untrusted. Normalization requires an object/item array; bounds arrays; trims strings; accepts null uncertainty; requires safe non-negative bounded integer cents and sensible positive integer quantities; omits malformed entries, duplicate adjustments and obvious payment/metadata rows with warnings. Gemini arithmetic is never authoritative. Receipt-level reconciliation (`subtotal + signed adjustments = grand total`) and item-level reconciliation (`sum(line totals) = subtotal`) remain separate, immediate, deterministic checks.
+
+This no-account endpoint disables JWT verification. CORS is not authentication and non-browser callers can forge Origin. Current constraints prevent arbitrary proxy, prompt and model use, but infrastructure-level quotas/rate limiting remain required before significant public traffic.
+
 ## Data model
 
 `Bill` is the aggregate root with random UUID, timestamps, creator display name, `Receipt`, `Participant[]`, `ItemAllocation[]`, optional QR blob, and reconciliation override. A `Receipt` contains source-of-truth items, signed adjustments, subtotal, total, an optional private image, raw OCR text, and review warnings. `ReceiptItem` retains quantity, unit price, and explicit line total. `ReceiptAdjustment.kind` distinguishes service, tax, discount, and other while `amount` remains signed. Participants have only UUID, display name, creator flag, and one of `UNPAID`, `MARKED_SENT`, or `CONFIRMED_RECEIVED`.
@@ -36,7 +48,7 @@ Cross-browser consistency has three observable boundaries. A fingerprint mismatc
 
 ## Storage
 
-`BillRepository` supplies `list`, `get`, `save`, and `remove`. `IndexedDbBillRepository` is the local implementation and supports `Blob` receipt/QR images plus raw OCR text without base64 or localStorage. OCR has no analytics or network submission path. A future remote repository can keep the same application-facing contract, with subscription methods added separately for live changes.
+`BillRepository` supplies `list`, `get`, `save`, and `remove`. `IndexedDbBillRepository` is the local implementation and supports `Blob` receipt/QR images plus raw OCR text without base64 or localStorage. Offline OCR has no analytics or receipt submission path. Smart Scan sends the image through Supabase to Gemini for processing but does not intentionally persist it server-side; Google processing is subject to its API terms. A future remote repository can keep the same application-facing contract, with subscription methods added separately for live changes.
 
 ## Sharing and security design
 

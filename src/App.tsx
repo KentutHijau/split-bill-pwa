@@ -3,6 +3,7 @@ import { calculateBill, reconcile, reconcileItems } from './calculations';
 import { demos } from './demos';
 import { formatMoney, parseMoney } from './money';
 import { IndexedDbBillRepository } from './storage';
+import { smartScan, smartScanConfigured } from './smartScan';
 import type { ParseProgress } from './parser';
 import type {
   AdjustmentKind,
@@ -77,7 +78,8 @@ export default function App() {
     [saved, setSaved] = useState<Bill[]>([]),
     [override, setOverride] = useState(false),
     [ocrProgress, setOcrProgress] = useState<ParseProgress>(),
-    [ocrError, setOcrError] = useState('');
+    [ocrError, setOcrError] = useState(''),
+    [smartProgress, setSmartProgress] = useState<string>();
   useEffect(() => {
     repo.list().then(setSaved);
   }, []);
@@ -110,6 +112,7 @@ export default function App() {
         setOcrProgress,
       );
       parsed.image = receipt.image;
+      parsed.scanMethod = 'OFFLINE';
       setReceipt(parsed);
       setOverride(false);
     } catch (error) {
@@ -120,6 +123,30 @@ export default function App() {
       );
     } finally {
       setOcrProgress(undefined);
+    }
+  };
+  const readReceiptSmart = async () => {
+    if (!receipt.image || smartProgress) return;
+    setOcrError('');
+    setSmartProgress('Preparing receipt');
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      setSmartProgress('Uploading securely');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      setSmartProgress('Reading receipt');
+      const parsed = await smartScan(receipt.image);
+      setSmartProgress('Structuring bill');
+      setReceipt(parsed);
+      setSmartProgress('Checking totals');
+      setOverride(false);
+    } catch (error) {
+      setOcrError(
+        error instanceof Error
+          ? error.message
+          : 'Smart Scan failed. Please retry or use Offline Scan.',
+      );
+    } finally {
+      setSmartProgress(undefined);
     }
   };
   const startPeople = () => {
@@ -332,23 +359,58 @@ export default function App() {
           {receipt.image && (
             <section className="ocr-panel">
               <p>
-                <b>Private, on-device OCR</b>
+                <b>Smart Scan</b>
                 <br />
                 <small>
-                  Your image and detected text are processed locally and are not
-                  uploaded.
+                  Better receipt understanding. Your image is securely sent to
+                  our receipt service for Gemini processing and is not
+                  intentionally stored by Makan Split.
                 </small>
               </p>
               <button
                 className="primary full"
-                disabled={Boolean(ocrProgress)}
+                disabled={
+                  Boolean(ocrProgress || smartProgress) ||
+                  !smartScanConfigured()
+                }
+                onClick={() => void readReceiptSmart()}
+              >
+                {smartProgress
+                  ? 'Reading…'
+                  : receipt.scanMethod === 'SMART'
+                    ? 'Smart Scan again'
+                    : 'Smart Scan'}
+              </button>
+              {!smartScanConfigured() && (
+                <div className="ocr-error">
+                  Smart Scan is not configured. You can still use Offline Scan.
+                </div>
+              )}
+              {smartProgress && (
+                <div className="progress" role="status">
+                  <span>{smartProgress}</span>
+                  <progress />
+                </div>
+              )}
+              <hr />
+              <p>
+                <b>Offline Scan</b>
+                <br />
+                <small>
+                  Runs receipt recognition locally in this browser. Nothing is
+                  sent to Gemini.
+                </small>
+              </p>
+              <button
+                className="secondary full"
+                disabled={Boolean(ocrProgress || smartProgress)}
                 onClick={() => void readReceipt()}
               >
                 {ocrProgress
-                  ? 'Reading…'
-                  : receipt.rawOcrText
-                    ? 'Read receipt again'
-                    : 'Read receipt'}
+                  ? 'Reading locally…'
+                  : receipt.scanMethod === 'OFFLINE'
+                    ? 'Offline Scan again'
+                    : 'Use Offline Scan'}
               </button>
               {ocrProgress && (
                 <div className="progress" role="status">
@@ -369,13 +431,22 @@ export default function App() {
               )}
               {ocrError && (
                 <div className="ocr-error" role="alert">
-                  {ocrError}{' '}
-                  <button className="link" onClick={() => void readReceipt()}>
-                    Retry
-                  </button>
+                  {ocrError}
+                  <div>
+                    <button
+                      className="link"
+                      onClick={() => void readReceiptSmart()}
+                    >
+                      Retry Smart Scan
+                    </button>
+                    {' · '}
+                    <button className="link" onClick={() => void readReceipt()}>
+                      Use Offline Scan instead
+                    </button>
+                  </div>
                 </div>
               )}
-              {receipt.ocrDiagnostics && (
+              {receipt.scanMethod === 'OFFLINE' && receipt.ocrDiagnostics && (
                 <details className="diagnostics">
                   <summary>OCR diagnostics</summary>
                   <p className="diagnostic-note">
@@ -542,7 +613,9 @@ export default function App() {
                 {!itemCheck.reconciled && receipt.subtotalSource && (
                   <div className="grand">
                     <span>Missing/unresolved item value</span>
-                    <strong>{formatMoney(Math.abs(itemCheck.difference))}</strong>
+                    <strong>
+                      {formatMoney(Math.abs(itemCheck.difference))}
+                    </strong>
                   </div>
                 )}
                 {receipt.adjustments.map((a, index) => (

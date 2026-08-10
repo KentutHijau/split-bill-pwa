@@ -51,6 +51,25 @@ export interface Receipt {
   parseWarnings?: string[];
   /** Plausible item-area OCR lines that the conservative parser did not classify. */
   possibleMissedLines?: string[];
+  /** Extraction path used for the latest scan. */
+  scanMethod?: 'SMART' | 'OFFLINE';
+}
+
+export interface ExtractedReceipt {
+  merchantName: string | null;
+  items: Array<{
+    name: string;
+    quantity: number | null;
+    unitPriceCents: number | null;
+    lineTotalCents: number | null;
+  }>;
+  subtotalCents: number | null;
+  serviceCharges: Array<{ label: string; amountCents: number }>;
+  taxes: Array<{ label: string; amountCents: number }>;
+  discounts: Array<{ label: string; amountCents: number }>;
+  otherAdjustments: Array<{ label: string; amountCents: number }>;
+  grandTotalCents: number | null;
+  warnings: string[];
 }
 export type PaymentStatus = 'UNPAID' | 'MARKED_SENT' | 'CONFIRMED_RECEIVED';
 export interface Participant {

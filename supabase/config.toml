@@ -1,0 +1,3 @@
+[functions.parse-receipt]
+verify_jwt = false
+
