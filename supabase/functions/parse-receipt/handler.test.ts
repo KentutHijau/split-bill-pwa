@@ -17,7 +17,7 @@ const baseReceipt = {
 const geminiResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const invoke = async (upstream: Response) => {
+const invoke = async (upstream: Response, structuredOutput?: 'none' | 'mime' | 'schema') => {
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(upstream);
   const log = vi.fn();
   const handler = createParseReceiptHandler({
@@ -25,6 +25,7 @@ const invoke = async (upstream: Response) => {
     allowedOrigins: new Set([origin]),
     fetch,
     log,
+    structuredOutput,
   });
   const response = await handler(new Request('https://example.test/parse-receipt', {
     method: 'POST',
@@ -59,6 +60,25 @@ describe('parse-receipt Gemini diagnostics', () => {
     expect(result.body).toEqual({ error: 'gemini_no_candidate' });
   });
 
+  it('logs only safe structured error metadata', async () => {
+    const result = await invoke(geminiResponse({ error: {
+      code: 400,
+      status: 'INVALID_ARGUMENT',
+      message: 'Request contains an invalid argument.',
+      details: [{
+        '@type': 'type.googleapis.com/google.rpc.BadRequest',
+        fieldViolations: [{ field: 'generation_config.response_json_schema' }],
+      }, {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        metadata: { api_key: 'must-not-be-logged', receipt: 'must-not-be-logged' },
+      }],
+    } }, 400));
+    const logged = result.log.mock.calls.join(' ');
+    expect(logged).toContain('type.googleapis.com/google.rpc.BadRequest');
+    expect(logged).toContain('generation_config.response_json_schema');
+    expect(logged).not.toContain('must-not-be-logged');
+  });
+
   it('categorizes a candidate with no text', async () => {
     const result = await invoke(geminiResponse({ candidates: [{ content: { parts: [] } }] }));
     expect(result.body).toEqual({ error: 'gemini_no_text' });
@@ -79,10 +99,33 @@ describe('parse-receipt Gemini diagnostics', () => {
     expect(result.response.status).toBe(200);
     expect(result.body).toEqual({ receipt: baseReceipt });
     const request = JSON.parse(String(result.fetch.mock.calls[0]?.[1]?.body));
-    expect(request.generationConfig).toMatchObject({
-      responseMimeType: 'application/json', responseSchema: expect.any(Object),
+    expect(result.fetch.mock.calls[0]?.[0]).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
+    );
+    expect(request.generationConfig).toEqual({
+      responseMimeType: 'application/json', responseJsonSchema: expect.any(Object),
     });
-    expect(request.generationConfig.responseJsonSchema).toBeUndefined();
+    expect(request.generationConfig.responseSchema).toBeUndefined();
+    expect(request.generationConfig.temperature).toBeUndefined();
+    expect(request.generationConfig.responseJsonSchema.properties.merchantName.type)
+      .toEqual(['string', 'null']);
+    expect(request.generationConfig.responseJsonSchema.properties.items.maxItems).toBe(100);
     expect(request.contents[0].parts[1].inlineData.mimeType).toBe('image/jpeg');
+    expect(request.contents[0].parts[1].inlineData.data).toBe('AQID');
+    expect(request.systemInstruction.parts[0].text).toEqual(expect.any(String));
+  });
+
+  it.each([
+    ['none', undefined],
+    ['mime', { responseMimeType: 'application/json' }],
+    ['schema', { responseMimeType: 'application/json', responseJsonSchema: expect.any(Object) }],
+  ] as const)('builds the %s structured-output isolation request', async (mode, expected) => {
+    const result = await invoke(geminiResponse({ candidates: [] }), mode);
+    const request = JSON.parse(String(result.fetch.mock.calls[0]?.[1]?.body));
+    expect(request.generationConfig).toEqual(expected);
+    expect(request.contents[0].parts).toEqual([
+      { text: expect.any(String) },
+      { inlineData: { mimeType: 'image/jpeg', data: 'AQID' } },
+    ]);
   });
 });

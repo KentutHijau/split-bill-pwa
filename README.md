@@ -37,7 +37,7 @@ Deploy with:
 1. `supabase login` then `supabase link --project-ref <project-ref>`.
 2. Confirm the secret name without printing its value: `supabase secrets list --project-ref <project-ref>`. If absent, run `supabase secrets set GEMINI_API_KEY --project-ref <project-ref>` outside source control.
 3. Set exact origins: `supabase secrets set ALLOWED_ORIGINS=https://<username>.github.io --project-ref <project-ref>`. Origins omit repository paths; localhost:5173 is built in.
-4. Optionally set server-only `GEMINI_MODEL`; the default is `gemini-2.5-flash`.
+4. Optionally set server-only `GEMINI_MODEL`; the default is `gemini-3.5-flash-lite`. For a short-lived request-isolation diagnosis, set `GEMINI_STRUCTURED_OUTPUT` to `none`, then `mime`, then `schema` (the default). `none` tests image generation without structured output, `mime` requests JSON without a schema, and `schema` sends the full receipt JSON Schema. Remove the diagnostic override after testing.
 5. Run `supabase functions deploy parse-receipt --no-verify-jwt --project-ref <project-ref>`.
 
 The public Pages app has no accounts, so JWT verification is disabled for this function. Origin, POST-only, MIME, 8 MiB, fixed upstream/model/prompt and timeout controls reduce abuse, but CORS can be forged outside a browser. Add gateway/WAF quotas or rate limiting before high-volume launch.
