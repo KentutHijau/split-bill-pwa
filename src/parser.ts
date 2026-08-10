@@ -41,6 +41,8 @@ const adjustmentRules: Array<[RegExp, AdjustmentKind]> = [
 ];
 const modifierLine = /^(?:\d{1,2}\s+)?[*¥￥|~^`'“”]{1,}\s*\p{L}/u;
 const itemHeaderLine = /\b(?:qty|quantity)\b.*\bitem\b|\bitem\s+name\b/i;
+const malformedAmountAtEnd =
+  /(?:S?\$?\s*)?[0-9OIlS]{1,5}[.,][0-9OIlS]{2}\s*[^\p{L}\p{N}]*$/iu;
 
 const cleanMerchantName = (line: string) =>
   line
@@ -68,13 +70,15 @@ export function parseReceiptText(rawText: string): Receipt {
     restaurantName: '',
     items: [],
     adjustments: [],
-    subtotal: 0,
-    grandTotal: 0,
+    subtotal: null,
+    grandTotal: null,
     rawOcrText: rawText,
     parseWarnings: [],
   };
   const structural = new Set<number>();
   const itemLines = new Set<number>();
+  const itemLineIds = new Map<number, string>();
+  const modifierLines = new Set<number>();
   let foundTotal = false;
   let foundExplicitTotal = false;
   let subtotalIndex = lines.length;
@@ -119,7 +123,6 @@ export function parseReceiptText(rawText: string): Receipt {
       }
     }
   });
-
   receipt.restaurantName = cleanMerchantName(
     lines.find(
       (line, index) =>
@@ -156,24 +159,75 @@ export function parseReceiptText(rawText: string): Receipt {
     if (!Number.isFinite(lineTotal) || lineTotal < 0) return;
     const unitPrice =
       lineTotal % quantity === 0 ? lineTotal / quantity : lineTotal;
+    const itemId = id('item', receipt.items.length);
     receipt.items.push({
-      id: id('item', receipt.items.length),
+      id: itemId,
       name: description,
       quantity,
       unitPrice,
       lineTotal,
     });
     itemLines.add(index);
+    itemLineIds.set(index, itemId);
     if (lineTotal % quantity !== 0)
       receipt.parseWarnings!.push(
         `Check quantity and unit price for: ${description}`,
       );
+  });
+  // Preserve a structurally item-like row whose terminal monetary token was
+  // OCR-corrupted, without guessing what that amount should have been.
+  lines.forEach((line, index) => {
+    if (
+      index >= subtotalIndex ||
+      structural.has(index) ||
+      itemLines.has(index) ||
+      metaLine.test(line) ||
+      modifierLine.test(line) ||
+      !lines
+        .slice(0, index)
+        .some((candidate) => itemHeaderLine.test(candidate)) ||
+      !malformedAmountAtEnd.test(line)
+    )
+      return;
+    const name = line
+      .replace(malformedAmountAtEnd, '')
+      .replace(/^\d{1,2}(?:\s*[xX])?\s+/, '')
+      .replace(/^[*¥￥|~^`'"“”]+\s*/, '')
+      .trim();
+    if (!/[A-Za-z]{2}/.test(name)) return;
+    const itemId = id('item', receipt.items.length);
+    receipt.items.push({
+      id: itemId,
+      name,
+      quantity: 1,
+      unitPrice: null,
+      lineTotal: null,
+    });
+    itemLines.add(index);
+    itemLineIds.set(index, itemId);
+    receipt.parseWarnings!.push(`Price not detected for item: ${name}`);
+  });
+  // Decoration/indentation plus no amount is structural evidence of an option,
+  // not a zero-priced claimable item. Associate only with a preceding item.
+  receipt.modifiers = [];
+  lines.forEach((line, index) => {
+    if (!modifierLine.test(line) || amountAtEnd.test(line)) return;
+    const parentIndex = [...itemLines]
+      .filter((candidate) => candidate < index)
+      .at(-1);
+    receipt.modifiers!.push({
+      text: line.replace(/^(?:\d{1,2}\s+)?[*¥￥|~^`'“”]+\s*/u, '').trim(),
+      itemId:
+        parentIndex === undefined ? undefined : itemLineIds.get(parentIndex),
+    });
+    modifierLines.add(index);
   });
   receipt.possibleMissedLines = lines.filter(
     (line, index) =>
       index < subtotalIndex &&
       !structural.has(index) &&
       !itemLines.has(index) &&
+      !modifierLines.has(index) &&
       !metaLine.test(line) &&
       !modifierLine.test(line) &&
       !itemHeaderLine.test(line) &&
@@ -183,14 +237,20 @@ export function parseReceiptText(rawText: string): Receipt {
       // the item area, which normally begins after a QTY/ITEM header.
       lines.slice(0, index).some((candidate) => itemHeaderLine.test(candidate)),
   );
-  const itemSum = receipt.items.reduce((sum, item) => sum + item.lineTotal, 0);
-  if (!receipt.subtotalSource)
+  const itemSum = receipt.items.reduce(
+    (sum, item) => sum + (item.lineTotal ?? 0),
+    0,
+  );
+  if (receipt.subtotal === null)
     receipt.parseWarnings!.push('Receipt subtotal was not detected.');
-  else if (Math.abs(itemSum - receipt.subtotal) > 1)
+  else if (
+    receipt.items.every((item) => item.lineTotal !== null) &&
+    Math.abs(itemSum - receipt.subtotal) > 1
+  )
     receipt.parseWarnings!.push(
       `Detected items total S$${(itemSum / 100).toFixed(2)} but receipt subtotal is S$${(receipt.subtotal / 100).toFixed(2)}. One or more items may be missing.`,
     );
-  if (!foundTotal)
+  if (!foundTotal || receipt.grandTotal === null)
     receipt.parseWarnings!.push('Receipt total was not detected.');
   if (!receipt.restaurantName)
     receipt.parseWarnings!.push('Merchant name was not confidently detected.');

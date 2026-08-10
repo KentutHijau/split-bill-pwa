@@ -8,14 +8,16 @@ export const parseMoney = (value: string): Cents => {
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
   return negative ? -cents : cents;
 };
-export const formatMoney = (cents: Cents, currency = 'SGD') =>
-  new Intl.NumberFormat('en-SG', {
-    style: 'currency',
-    currency,
-    currencyDisplay: 'narrowSymbol',
-  })
-    .format(cents / 100)
-    .replace('$', 'S$');
+export const formatMoney = (cents: Cents | null, currency = 'SGD') =>
+  cents === null
+    ? 'Price not detected'
+    : new Intl.NumberFormat('en-SG', {
+        style: 'currency',
+        currency,
+        currencyDisplay: 'narrowSymbol',
+      })
+        .format(cents / 100)
+        .replace('$', 'S$');
 export const splitEvenly = (
   cents: Cents,
   ids: string[],

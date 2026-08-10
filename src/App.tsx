@@ -551,7 +551,10 @@ export default function App() {
                           mutateReceipt((r) => {
                             const x = r.items[index];
                             x.quantity = Number(e.target.value);
-                            x.lineTotal = x.quantity * x.unitPrice;
+                            x.lineTotal =
+                              x.unitPrice === null
+                                ? null
+                                : x.quantity * x.unitPrice;
                           })
                         }
                       />
@@ -569,12 +572,26 @@ export default function App() {
                     </label>
                     <label>
                       Unit price
-                      {moneyInput(item.unitPrice, (n) =>
-                        mutateReceipt((r) => {
-                          const x = r.items[index];
-                          x.unitPrice = n;
-                          x.lineTotal = x.quantity * n;
-                        }),
+                      {item.unitPrice === null ? (
+                        <button
+                          className="secondary"
+                          onClick={() =>
+                            mutateReceipt((r) => {
+                              r.items[index].unitPrice = 0;
+                              r.items[index].lineTotal = 0;
+                            })
+                          }
+                        >
+                          Price not detected — enter price
+                        </button>
+                      ) : (
+                        moneyInput(item.unitPrice, (n) =>
+                          mutateReceipt((r) => {
+                            const x = r.items[index];
+                            x.unitPrice = n;
+                            x.lineTotal = x.quantity * n;
+                          }),
+                        )
                       )}
                     </label>
                     <button
@@ -612,7 +629,7 @@ export default function App() {
                 <label className="grand">
                   Receipt subtotal
                   {receipt.subtotalSource ? (
-                    moneyInput(receipt.subtotal, (n) =>
+                    moneyInput(receipt.subtotal!, (n) =>
                       mutateReceipt((r) => {
                         r.subtotal = n;
                         r.subtotalSource = 'MANUAL';
@@ -639,7 +656,7 @@ export default function App() {
                   <div className="grand">
                     <span>Missing/unresolved item value</span>
                     <strong>
-                      {formatMoney(Math.abs(itemCheck.difference))}
+                      {formatMoney(Math.abs(itemCheck.difference!))}
                     </strong>
                   </div>
                 )}
@@ -703,10 +720,23 @@ export default function App() {
                 </button>
                 <label className="grand">
                   Receipt total
-                  {moneyInput(receipt.grandTotal, (n) =>
-                    mutateReceipt((r) => {
-                      r.grandTotal = n;
-                    }),
+                  {receipt.grandTotal === null ? (
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        mutateReceipt((r) => {
+                          r.grandTotal = 0;
+                        })
+                      }
+                    >
+                      Not detected — enter total
+                    </button>
+                  ) : (
+                    moneyInput(receipt.grandTotal, (n) =>
+                      mutateReceipt((r) => {
+                        r.grandTotal = n;
+                      }),
+                    )
                   )}
                 </label>
               </div>
@@ -743,18 +773,20 @@ export default function App() {
                 </>
               )}
               <div className={'reconcile ' + (check.reconciled ? 'ok' : 'bad')}>
-                <span>{check.reconciled ? '✓' : '!'}</span>
+                <span>{check.reconciled ? '✓' : '?'}</span>
                 <div>
                   <b>
                     {check.reconciled
                       ? 'Receipt totals reconciled'
-                      : "Receipt doesn't balance"}
+                      : check.status === 'INCOMPLETE'
+                        ? 'Receipt totals cannot be determined'
+                        : "Receipt doesn't balance"}
                   </b>
-                  {!check.reconciled && (
+                  {check.status === 'DOES_NOT_RECONCILE' && (
                     <small>
                       Calculated {formatMoney(check.calculated)} · Receipt{' '}
                       {formatMoney(receipt.grandTotal)} · Difference{' '}
-                      {formatMoney(Math.abs(check.difference))}
+                      {formatMoney(Math.abs(check.difference!))}
                     </small>
                   )}
                 </div>
@@ -773,7 +805,7 @@ export default function App() {
                     <small>
                       Detected items {formatMoney(itemCheck.detectedItems)} ·
                       Receipt subtotal {formatMoney(receipt.subtotal)} ·
-                      Difference {formatMoney(Math.abs(itemCheck.difference))}
+                      Difference {formatMoney(Math.abs(itemCheck.difference!))}
                     </small>
                   )}
                   {!receipt.subtotalSource && (
@@ -1024,7 +1056,7 @@ export default function App() {
           </div>
           <div>
             <span>Outstanding</span>
-            <b>{formatMoney(bill.receipt.grandTotal - confirmed)}</b>
+            <b>{formatMoney((bill.receipt.grandTotal ?? 0) - confirmed)}</b>
           </div>
         </section>
         <section>

@@ -77,9 +77,11 @@ export const mapExtractedReceipt = (
   items: data.items.map((item) => {
     const quantity = item.quantity ?? 1;
     const lineTotal =
-      item.lineTotalCents ?? (item.unitPriceCents ?? 0) * quantity;
+      item.lineTotalCents ??
+      (item.unitPriceCents === null ? null : item.unitPriceCents * quantity);
     const unitPrice =
-      item.unitPriceCents ?? (quantity ? Math.round(lineTotal / quantity) : 0);
+      item.unitPriceCents ??
+      (lineTotal === null ? null : Math.round(lineTotal / quantity));
     return {
       id: crypto.randomUUID(),
       name: item.name,
@@ -94,9 +96,9 @@ export const mapExtractedReceipt = (
     ...data.discounts.map((x) => adjustment(x, 'DISCOUNT')),
     ...data.otherAdjustments.map((x) => adjustment(x, 'OTHER')),
   ],
-  subtotal: data.subtotalCents ?? 0,
+  subtotal: data.subtotalCents,
   subtotalSource: data.subtotalCents === null ? undefined : 'DETECTED',
-  grandTotal: data.grandTotalCents ?? 0,
+  grandTotal: data.grandTotalCents,
   parseWarnings: data.warnings,
 });
 

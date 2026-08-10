@@ -56,7 +56,10 @@ describe('Smart Scan mapping', () => {
     );
     expect(result.restaurantName).toBe('');
     expect(result.subtotalSource).toBeUndefined();
-    expect(result.items[0].unitPrice).toBe(0);
+    expect(result.items[0].unitPrice).toBeNull();
+    expect(result.items[0].lineTotal).toBeNull();
+    expect(result.subtotal).toBeNull();
+    expect(result.grandTotal).toBeNull();
   });
 });
 
