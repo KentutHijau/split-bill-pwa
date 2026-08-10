@@ -3,6 +3,7 @@ import {
   calculateBill,
   calculatedReceiptTotal,
   reconcile,
+  reconcileItems,
 } from './calculations';
 import { allocateProportionally, parseMoney, splitEvenly } from './money';
 import type { Bill, Receipt } from './types';
@@ -67,6 +68,20 @@ describe('receipt reconciliation', () => {
     );
     expect(calculatedReceiptTotal(r)).toBe(1151);
     expect(reconcile(r).reconciled).toBe(true);
+  });
+  it('reconciles printed totals separately from detected items', () => {
+    const r = receipt(
+      [{ id: 's', label: 'Service', kind: 'SERVICE', amount: 100 }],
+      1101,
+    );
+    r.subtotalSource = 'DETECTED';
+    r.items[0].lineTotal = 500;
+    expect(reconcile(r).reconciled).toBe(true);
+    expect(reconcileItems(r)).toMatchObject({
+      detectedItems: 500,
+      difference: 501,
+      reconciled: false,
+    });
   });
   it('reports discrepancy and permits a one-cent receipt rounding tolerance', () => {
     expect(reconcile({ ...receipt(), grandTotal: 1002 })).toMatchObject({

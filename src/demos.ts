@@ -21,6 +21,7 @@ export const demos: Receipt[] = [
       adjustment('a2', 'GST 9%', 'TAX', 713),
     ],
     subtotal: 7200,
+    subtotalSource: 'DETECTED',
     grandTotal: 8633,
   },
   {
@@ -28,6 +29,7 @@ export const demos: Receipt[] = [
     items: [item('i1', 'Laksa', 2, 750), item('i2', 'Iced kopi', 2, 220)],
     adjustments: [adjustment('a1', 'GST', 'TAX', 175)],
     subtotal: 1940,
+    subtotalSource: 'DETECTED',
     grandTotal: 2115,
   },
   {
@@ -38,6 +40,7 @@ export const demos: Receipt[] = [
     ],
     adjustments: [],
     subtotal: 1300,
+    subtotalSource: 'DETECTED',
     grandTotal: 1300,
   },
 ];

@@ -39,6 +39,8 @@ export interface Receipt {
   items: ReceiptItem[];
   adjustments: ReceiptAdjustment[];
   subtotal: Cents;
+  /** Whether the printed subtotal was OCR-detected or subsequently entered by a user. */
+  subtotalSource?: 'DETECTED' | 'MANUAL';
   grandTotal: Cents;
   /** Text produced by local OCR. Kept with the receipt for review, never sent. */
   rawOcrText?: string;

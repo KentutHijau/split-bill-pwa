@@ -1,10 +1,16 @@
 import { Component, useEffect, useState } from 'react';
-import { calculateBill, reconcile } from './calculations';
+import { calculateBill, reconcile, reconcileItems } from './calculations';
 import { demos } from './demos';
 import { formatMoney, parseMoney } from './money';
 import { IndexedDbBillRepository } from './storage';
 import type { ParseProgress } from './parser';
-import type { AdjustmentKind, Bill, OcrDiagnostics, PaymentStatus, Receipt } from './types';
+import type {
+  AdjustmentKind,
+  Bill,
+  OcrDiagnostics,
+  PaymentStatus,
+  Receipt,
+} from './types';
 const repo = new IndexedDbBillRepository();
 const uid = () => crypto.randomUUID();
 type Screen = 'home' | 'receipt' | 'people' | 'claim' | 'dashboard';
@@ -29,24 +35,25 @@ const moneyInput = (c: number, onChange: (n: number) => void) => (
     }}
   />
 );
-const diagnosticsText = (d: OcrDiagnostics) => [
-  `Source file: ${d.sourceFileName}`,
-  `Source MIME type: ${d.sourceMimeType}`,
-  `Source file size: ${d.sourceFileSize} bytes`,
-  `Original decoded size: ${d.originalWidth} × ${d.originalHeight}`,
-  `EXIF orientation: ${d.exifOrientation}`,
-  `Orientation transform: ${d.orientationTransform}`,
-  `Normalized OCR size: ${d.normalizedWidth} × ${d.normalizedHeight}`,
-  `Maximum long edge: ${d.maximumDimension}px`,
-  `Preprocessing version: ${d.preprocessingVersion}`,
-  `OCR language: ${d.ocrLanguage}`,
-  `Tesseract.js: ${d.tesseractVersion}`,
-  `Engine mode: ${d.engineMode}`,
-  `Page segmentation: ${d.pageSegmentationMode}`,
-  `Normalized pixel fingerprint (SHA-256): ${d.fingerprint}`,
-  `Raw OCR character count: ${d.rawOcrCharacterCount}`,
-  `Browser: ${d.userAgent}`,
-].join('\n');
+const diagnosticsText = (d: OcrDiagnostics) =>
+  [
+    `Source file: ${d.sourceFileName}`,
+    `Source MIME type: ${d.sourceMimeType}`,
+    `Source file size: ${d.sourceFileSize} bytes`,
+    `Original decoded size: ${d.originalWidth} × ${d.originalHeight}`,
+    `EXIF orientation: ${d.exifOrientation}`,
+    `Orientation transform: ${d.orientationTransform}`,
+    `Normalized OCR size: ${d.normalizedWidth} × ${d.normalizedHeight}`,
+    `Maximum long edge: ${d.maximumDimension}px`,
+    `Preprocessing version: ${d.preprocessingVersion}`,
+    `OCR language: ${d.ocrLanguage}`,
+    `Tesseract.js: ${d.tesseractVersion}`,
+    `Engine mode: ${d.engineMode}`,
+    `Page segmentation: ${d.pageSegmentationMode}`,
+    `Normalized pixel fingerprint (SHA-256): ${d.fingerprint}`,
+    `Raw OCR character count: ${d.rawOcrCharacterCount}`,
+    `Browser: ${d.userAgent}`,
+  ].join('\n');
 class BlobImage extends Component<{ blob: Blob; alt: string }> {
   private src = URL.createObjectURL(this.props.blob);
   componentDidUpdate(previous: Readonly<{ blob: Blob; alt: string }>) {
@@ -81,9 +88,6 @@ export default function App() {
       fn(next);
       return next;
     });
-  const updateItemSubtotal = (r: Receipt) => {
-    r.subtotal = r.items.reduce((sum, item) => sum + item.lineTotal, 0);
-  };
   const selectImage = (file?: File) => {
     if (!file) return;
     mutateReceipt((r) => {
@@ -229,6 +233,11 @@ export default function App() {
     );
   if (screen === 'receipt') {
     const check = reconcile(receipt);
+    const itemCheck = reconcileItems(receipt);
+    const currentWarnings = receipt.parseWarnings?.filter(
+      (warning) =>
+        !itemCheck.reconciled || !warning.startsWith('Detected items total '),
+    );
     return (
       <>
         {top}
@@ -369,16 +378,32 @@ export default function App() {
               {receipt.ocrDiagnostics && (
                 <details className="diagnostics">
                   <summary>OCR diagnostics</summary>
-                  <p className="diagnostic-note">Developer comparison data only. It contains no detected receipt text.</p>
+                  <p className="diagnostic-note">
+                    Developer comparison data only. It contains no detected
+                    receipt text.
+                  </p>
                   <pre>{diagnosticsText(receipt.ocrDiagnostics)}</pre>
-                  <button className="secondary" onClick={() => void navigator.clipboard.writeText(diagnosticsText(receipt.ocrDiagnostics!))}>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      void navigator.clipboard.writeText(
+                        diagnosticsText(receipt.ocrDiagnostics!),
+                      )
+                    }
+                  >
                     Copy diagnostics
                   </button>
                   {receipt.ocrInputImage && (
                     <details>
                       <summary>View OCR input image</summary>
-                      <p className="diagnostic-note">Diagnostic view: the normalized, preprocessed PNG sent to Tesseract.</p>
-                      <BlobImage blob={receipt.ocrInputImage} alt="Normalized OCR diagnostic input" />
+                      <p className="diagnostic-note">
+                        Diagnostic view: the normalized, preprocessed PNG sent
+                        to Tesseract.
+                      </p>
+                      <BlobImage
+                        blob={receipt.ocrInputImage}
+                        alt="Normalized OCR diagnostic input"
+                      />
                     </details>
                   )}
                 </details>
@@ -431,7 +456,6 @@ export default function App() {
                             const x = r.items[index];
                             x.quantity = Number(e.target.value);
                             x.lineTotal = x.quantity * x.unitPrice;
-                            updateItemSubtotal(r);
                           })
                         }
                       />
@@ -454,7 +478,6 @@ export default function App() {
                           const x = r.items[index];
                           x.unitPrice = n;
                           x.lineTotal = x.quantity * n;
-                          updateItemSubtotal(r);
                         }),
                       )}
                     </label>
@@ -464,7 +487,6 @@ export default function App() {
                       onClick={() =>
                         mutateReceipt((r) => {
                           r.items.splice(index, 1);
-                          updateItemSubtotal(r);
                         })
                       }
                     >
@@ -483,7 +505,6 @@ export default function App() {
                         unitPrice: 0,
                         lineTotal: 0,
                       });
-                      updateItemSubtotal(r);
                     })
                   }
                 >
@@ -494,12 +515,30 @@ export default function App() {
               <div className="totals">
                 <label className="grand">
                   Receipt subtotal
-                  {moneyInput(receipt.subtotal, (n) =>
-                    mutateReceipt((r) => {
-                      r.subtotal = n;
-                    }),
+                  {receipt.subtotalSource ? (
+                    moneyInput(receipt.subtotal, (n) =>
+                      mutateReceipt((r) => {
+                        r.subtotal = n;
+                        r.subtotalSource = 'MANUAL';
+                      }),
+                    )
+                  ) : (
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        mutateReceipt((r) => {
+                          r.subtotalSource = 'MANUAL';
+                        })
+                      }
+                    >
+                      Not detected — enter subtotal
+                    </button>
                   )}
                 </label>
+                <div className="grand">
+                  <span>Detected items</span>
+                  <strong>{formatMoney(itemCheck.detectedItems)}</strong>
+                </div>
                 {receipt.adjustments.map((a, index) => (
                   <div key={a.id} className="adjust">
                     <input
@@ -567,11 +606,11 @@ export default function App() {
                   )}
                 </label>
               </div>
-              {receipt.parseWarnings?.length ? (
+              {currentWarnings?.length ? (
                 <div className="parse-warning">
                   <b>Needs review</b>
                   <ul>
-                    {receipt.parseWarnings.map((warning) => (
+                    {currentWarnings.map((warning) => (
                       <li key={warning}>{warning}</li>
                     ))}
                   </ul>
@@ -592,7 +631,7 @@ export default function App() {
                 <div>
                   <b>
                     {check.reconciled
-                      ? 'Receipt reconciled'
+                      ? 'Receipt totals reconciled'
                       : "Receipt doesn't balance"}
                   </b>
                   {!check.reconciled && (
@@ -600,6 +639,31 @@ export default function App() {
                       Calculated {formatMoney(check.calculated)} · Receipt{' '}
                       {formatMoney(receipt.grandTotal)} · Difference{' '}
                       {formatMoney(Math.abs(check.difference))}
+                    </small>
+                  )}
+                </div>
+              </div>
+              <div
+                className={'reconcile ' + (itemCheck.reconciled ? 'ok' : 'bad')}
+              >
+                <span>{itemCheck.reconciled ? '✓' : '!'}</span>
+                <div>
+                  <b>
+                    {itemCheck.reconciled
+                      ? 'Items match receipt subtotal'
+                      : 'Some items may be missing'}
+                  </b>
+                  {!itemCheck.reconciled && receipt.subtotalSource && (
+                    <small>
+                      Detected items {formatMoney(itemCheck.detectedItems)} ·
+                      Receipt subtotal {formatMoney(receipt.subtotal)} ·
+                      Difference {formatMoney(Math.abs(itemCheck.difference))}
+                    </small>
+                  )}
+                  {!receipt.subtotalSource && (
+                    <small>
+                      Enter the printed receipt subtotal to check detected
+                      items.
                     </small>
                   )}
                 </div>
