@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseReceiptText } from './parser';
+import desktopFixture from './test-fixtures/receipt-desktop.txt?raw';
+import mobileFixture from './test-fixtures/receipt-mobile.txt?raw';
 
 const parse = (body: string) => parseReceiptText(`MAKAN HOUSE\n${body}`);
 describe('Singapore OCR receipt parser', () => {
@@ -52,10 +54,67 @@ describe('Singapore OCR receipt parser', () => {
     );
     expect(r.items.map((i) => i.name)).toEqual(['Fish Soup']);
   });
-  it('uses the item sum when subtotal is missing and marks it for review', () => {
+  it('keeps a missing printed subtotal distinct from the item sum', () => {
     const r = parse('Rice 4.00\nTea 2.00\nTOTAL 6.00');
-    expect(r.subtotal).toBe(600);
-    expect(r.parseWarnings?.join(' ')).toMatch(/Subtotal/);
+    expect(r.subtotal).toBe(0);
+    expect(r.items.reduce((sum, item) => sum + item.lineTotal, 0)).toBe(600);
+    expect(r.parseWarnings?.join(' ')).toMatch(/subtotal/i);
+  });
+  it.each([
+    ['desktop', desktopFixture],
+    ['mobile', mobileFixture],
+  ])('parses the sanitized real %s OCR fixture', (_device, fixture) => {
+    const r = parseReceiptText(fixture);
+    expect(r.subtotal).toBe(4420);
+    expect(r.subtotalSource).toBe('DETECTED');
+    expect(r.adjustments.map((a) => [a.kind, a.amount])).toEqual([
+      ['SERVICE', 442],
+      ['TAX', 438],
+    ]);
+    expect(r.grandTotal).toBe(5300);
+    expect(r.items.some((item) => /Service Charges/i.test(item.name))).toBe(
+      false,
+    );
+  });
+  it.each([
+    'Subtotal 44.20',
+    'Sub Total 44.20',
+    'SUB TOTAL 44.20',
+    'Sub-Total 44.20',
+    'sub total : 44.20 “-',
+  ])('recognizes subtotal variant: %s', (line) => {
+    expect(parse(`${line}\nGrand Total 44.20`).subtotal).toBe(4420);
+  });
+  it('prefers grand total and ignores a later card payment amount', () => {
+    const r = parse(
+      'Rice 10.00\nSubtotal 10.00\nTotal 11.00\nGrand Total 12.00 ©\nMaster Card **** 99.00',
+    );
+    expect(r.grandTotal).toBe(1200);
+    expect(r.items.map((item) => item.name)).toEqual(['Rice']);
+  });
+  it.each(['Service Charges', 'Service Chgs', 'Svc Charges', 'Svc Chgs'])(
+    'classifies plural service label %s before items',
+    (label) => {
+      const r = parse(
+        `Rice 10.00\nSubtotal 10.00\n${label} 10% 1.00\nGrand Total 11.00`,
+      );
+      expect(r.adjustments[0]).toMatchObject({ kind: 'SERVICE', amount: 100 });
+      expect(r.items.some((item) => item.name.includes(label))).toBe(false);
+    },
+  );
+  it('does not infer a service amount from percentage alone', () => {
+    expect(
+      parse('Rice 10.00\nService Charge 10%\nTotal 10.00').adjustments,
+    ).toHaveLength(0);
+  });
+  it('reads quantity items with decoration, meaningful parentheses, and modest leading garbage', () => {
+    const r = parse(
+      '1 *¥Fried Chicken (3pcs) 2.70\n7 1 Beef Yakiniku 5.00 |\nSubtotal 7.70\nTotal 7.70',
+    );
+    expect(r.items).toMatchObject([
+      { name: 'Fried Chicken (3pcs)', quantity: 1, lineTotal: 270 },
+      { name: 'Beef Yakiniku', quantity: 1, lineTotal: 500 },
+    ]);
   });
   it('leaves a missing total unresolved rather than fabricating one', () => {
     const r = parse('Rice 4.00\nSubtotal 4.00');
@@ -70,8 +129,12 @@ describe('Singapore OCR receipt parser', () => {
     expect(r.parseWarnings?.length).toBeGreaterThan(1);
   });
   it('is equivalent for LF, CRLF, CR, tabs, repeated and Unicode whitespace', () => {
-    const lf = parseReceiptText('MAKAN HOUSE\nChicken Rice 5.50\nSub Total 5.50\nTOTAL 5.50');
-    const noisy = parseReceiptText('MAKAN\u00a0\u2003HOUSE\r\nChicken\t  Rice  5.50\rSub\u202fTotal 5.50\r\nTOTAL 5.50');
+    const lf = parseReceiptText(
+      'MAKAN HOUSE\nChicken Rice 5.50\nSub Total 5.50\nTOTAL 5.50',
+    );
+    const noisy = parseReceiptText(
+      'MAKAN\u00a0\u2003HOUSE\r\nChicken\t  Rice  5.50\rSub\u202fTotal 5.50\r\nTOTAL 5.50',
+    );
     expect(noisy).toEqual({ ...lf, rawOcrText: noisy.rawOcrText });
   });
   it('returns stable IDs and output for identical input', () => {
