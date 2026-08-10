@@ -4,8 +4,9 @@ export interface ReceiptItem {
   id: string;
   name: string;
   quantity: number;
-  unitPrice: Cents;
-  lineTotal: Cents;
+  /** null means OCR did not find a printed value; zero is a real S$0.00. */
+  unitPrice: Cents | null;
+  lineTotal: Cents | null;
 }
 export interface ReceiptAdjustment {
   id: string;
@@ -38,10 +39,10 @@ export interface Receipt {
   image?: Blob;
   items: ReceiptItem[];
   adjustments: ReceiptAdjustment[];
-  subtotal: Cents;
+  subtotal: Cents | null;
   /** Whether the printed subtotal was OCR-detected or subsequently entered by a user. */
   subtotalSource?: 'DETECTED' | 'MANUAL';
-  grandTotal: Cents;
+  grandTotal: Cents | null;
   /** Text produced by local OCR. Kept with the receipt for review, never sent. */
   rawOcrText?: string;
   /** Debug metadata only; contains no OCR text or receipt fields. */
@@ -51,6 +52,8 @@ export interface Receipt {
   parseWarnings?: string[];
   /** Plausible item-area OCR lines that the conservative parser did not classify. */
   possibleMissedLines?: string[];
+  /** Non-claimable option text associated with the preceding priced item. */
+  modifiers?: Array<{ text: string; itemId?: string }>;
   /** Extraction path used for the latest scan. */
   scanMethod?: 'SMART' | 'OFFLINE';
 }

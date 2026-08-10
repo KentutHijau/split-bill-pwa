@@ -56,8 +56,10 @@ describe('Singapore OCR receipt parser', () => {
   });
   it('keeps a missing printed subtotal distinct from the item sum', () => {
     const r = parse('Rice 4.00\nTea 2.00\nTOTAL 6.00');
-    expect(r.subtotal).toBe(0);
-    expect(r.items.reduce((sum, item) => sum + item.lineTotal, 0)).toBe(600);
+    expect(r.subtotal).toBeNull();
+    expect(r.items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0)).toBe(
+      600,
+    );
     expect(r.parseWarnings?.join(' ')).toMatch(/subtotal/i);
   });
   it.each([
@@ -72,6 +74,20 @@ describe('Singapore OCR receipt parser', () => {
       ['TAX', 438],
     ]);
     expect(r.grandTotal).toBe(5300);
+    if (_device === 'desktop') {
+      expect(r.items.map((item) => [item.name, item.lineTotal])).toEqual([
+        ['Vegetable Omelet Curry', 1650],
+        ['Cheese', 200],
+        ['Fried Chicken (3pcs)', 270],
+        ['Creamed Chicken Omelet Curry', 1650],
+        ['Tuna', 150],
+        ['Beef Yakiniku', 500],
+      ]);
+      expect(r.modifiers?.map((modifier) => modifier.text)).toEqual([
+        'Mild',
+        'Standard',
+      ]);
+    }
     expect(r.items.some((item) => /Service Charges/i.test(item.name))).toBe(
       false,
     );
@@ -107,14 +123,19 @@ describe('Singapore OCR receipt parser', () => {
     expect(r.grandTotal).toBe(5300);
     expect(r.items).toHaveLength(0);
   });
-  it('reports the ICHIBANYA missed value without fabricating an item', () => {
+  it('preserves a structurally identified item with an unresolved OCR price', () => {
     const r = parseReceiptText(
       '£000 TCHIBANYA THE STAR VISTA ...\nQTY ITEM NAME AMOUNT\nVegetable Omelet Curry S.OO\n1 **Cheese 2.00\n1 **Fried Chicken 2.70\n1 Creamed Chicken Omelet Curry 16.50\n1 **Tuna 1.50\n1 **Beef Yakiniku 5.00\nSub Total 44.20\nService Charges 4.42\nGST 4.38\nGrand Total 53.00 bug\nMaster Card:#¥¥¥5034 53.00',
     );
     expect(r.restaurantName).toBe('TCHIBANYA THE STAR VISTA');
-    expect(r.items.reduce((sum, item) => sum + item.lineTotal, 0)).toBe(2770);
+    expect(r.items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0)).toBe(
+      2770,
+    );
+    expect(
+      r.items.find((item) => item.name === 'Vegetable Omelet Curry'),
+    ).toMatchObject({ unitPrice: null, lineTotal: null });
     expect(r.items.some((item) => item.name === 'Service Charges')).toBe(false);
-    expect(r.possibleMissedLines).toEqual(['Vegetable Omelet Curry S.OO']);
+    expect(r.possibleMissedLines).toEqual([]);
     expect(r).toMatchObject({ subtotal: 4420, grandTotal: 5300 });
   });
   it.each(['Service Charges', 'Service Chgs', 'Svc Charges', 'Svc Chgs'])(
@@ -143,14 +164,14 @@ describe('Singapore OCR receipt parser', () => {
   });
   it('leaves a missing total unresolved rather than fabricating one', () => {
     const r = parse('Rice 4.00\nSubtotal 4.00');
-    expect(r.grandTotal).toBe(0);
+    expect(r.grandTotal).toBeNull();
     expect(r.parseWarnings?.join(' ')).toMatch(/total was not detected/);
   });
   it('does not fabricate an item or price from broken OCR', () => {
     const r = parse('NoodIes S.OO\nGST O.45\nTOTAL S.45');
     expect(r.items).toHaveLength(0);
     expect(r.adjustments).toHaveLength(0);
-    expect(r.grandTotal).toBe(0);
+    expect(r.grandTotal).toBeNull();
     expect(r.parseWarnings?.length).toBeGreaterThan(1);
   });
   it('is equivalent for LF, CRLF, CR, tabs, repeated and Unicode whitespace', () => {
@@ -166,5 +187,15 @@ describe('Singapore OCR receipt parser', () => {
     const text = 'CAFE\nTea 1,20\nGST 0,11\nTOTAL 1,31';
     expect(parseReceiptText(text)).toEqual(parseReceiptText(text));
     expect(parseReceiptText(text).items[0].id).toBe('ocr-item-1');
+  });
+  it('keeps decorated unpriced options as modifier metadata', () => {
+    const r = parse(
+      'QTY ITEM NAME AMOUNT\n1 Curry 10.00\n**Mild\n1 Pasta 12.00\n**Standard\nSub Total 22.00\nGrand Total 22.00',
+    );
+    expect(r.items.map((item) => item.name)).toEqual(['Curry', 'Pasta']);
+    expect(r.modifiers).toEqual([
+      { text: 'Mild', itemId: 'ocr-item-1' },
+      { text: 'Standard', itemId: 'ocr-item-2' },
+    ]);
   });
 });

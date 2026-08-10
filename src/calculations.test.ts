@@ -99,6 +99,7 @@ describe('receipt reconciliation', () => {
       detectedItems: 2770,
       difference: 1650,
       reconciled: false,
+      status: 'DOES_NOT_RECONCILE',
     });
   });
   it('reports discrepancy and permits a one-cent receipt rounding tolerance', () => {
@@ -108,6 +109,22 @@ describe('receipt reconciliation', () => {
     });
     expect(reconcile({ ...receipt(), grandTotal: 1003 })).toMatchObject({
       difference: 2,
+      reconciled: false,
+    });
+  });
+  it('cannot reconcile absent printed totals or unresolved item prices', () => {
+    const missingTotals = { ...receipt(), subtotal: null, grandTotal: null };
+    expect(reconcile(missingTotals)).toMatchObject({
+      status: 'INCOMPLETE',
+      reconciled: false,
+      calculated: null,
+    });
+    const missingPrice = receipt();
+    missingPrice.subtotalSource = 'DETECTED';
+    missingPrice.items[0].unitPrice = null;
+    missingPrice.items[0].lineTotal = null;
+    expect(reconcileItems(missingPrice)).toMatchObject({
+      status: 'INCOMPLETE',
       reconciled: false,
     });
   });

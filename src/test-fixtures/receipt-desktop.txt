@@ -4,9 +4,11 @@ DINE IN
 PAX : 2
 QTY ITEM NAME AMOUNT
 1 Vegetable Omelet Curry 16.50
+**Mild
 1 *¥Cheese 2.00
 1 *¥Fried Chicken (3pcs) 2.70
 1 Creamed Chicken Omelet Curry 16.50
+**Standard
 1 *¥Tuna 1.50
 7 1 Beef Yakiniku 5.00 |
 Sub Total 44.20 “-

@@ -1,22 +1,43 @@
 import { allocateProportionally, splitEvenly } from './money';
 import type { Bill, Cents, ParticipantBreakdown, Receipt } from './types';
 export const calculatedReceiptTotal = (r: Receipt): Cents =>
-  r.subtotal + r.adjustments.reduce((s, a) => s + a.amount, 0);
+  (r.subtotal ?? 0) + r.adjustments.reduce((s, a) => s + a.amount, 0);
+export type ReconciliationStatus =
+  'RECONCILED' | 'DOES_NOT_RECONCILE' | 'INCOMPLETE';
 export const reconcileItems = (r: Receipt) => {
-  const detectedItems = r.items.reduce((sum, item) => sum + item.lineTotal, 0);
+  const complete =
+    r.subtotal !== null && r.items.every((item) => item.lineTotal !== null);
+  const detectedItems = r.items.reduce(
+    (sum, item) => sum + (item.lineTotal ?? 0),
+    0,
+  );
+  const difference = r.subtotal === null ? null : r.subtotal - detectedItems;
+  const status: ReconciliationStatus = !complete
+    ? 'INCOMPLETE'
+    : Math.abs(difference!) <= 1
+      ? 'RECONCILED'
+      : 'DOES_NOT_RECONCILE';
   return {
     detectedItems,
-    difference: r.subtotal - detectedItems,
-    reconciled:
-      Boolean(r.subtotalSource) && Math.abs(r.subtotal - detectedItems) <= 1,
+    difference,
+    status,
+    reconciled: status === 'RECONCILED',
   };
 };
 export const reconcile = (r: Receipt) => {
-  const calculated = calculatedReceiptTotal(r);
+  const complete = r.subtotal !== null && r.grandTotal !== null;
+  const calculated = complete ? calculatedReceiptTotal(r) : null;
+  const difference = complete ? r.grandTotal! - calculated! : null;
+  const status: ReconciliationStatus = !complete
+    ? 'INCOMPLETE'
+    : Math.abs(difference!) <= 1
+      ? 'RECONCILED'
+      : 'DOES_NOT_RECONCILE';
   return {
     calculated,
-    difference: r.grandTotal - calculated,
-    reconciled: Math.abs(r.grandTotal - calculated) <= 1,
+    difference,
+    status,
+    reconciled: status === 'RECONCILED',
   };
 };
 export function calculateBill(bill: Bill) {
@@ -30,6 +51,7 @@ export function calculateBill(bill: Bill) {
   for (const item of bill.receipt.items) {
     const claims =
       bill.allocations.find((a) => a.itemId === item.id)?.participantIds ?? [];
+    if (item.lineTotal === null) continue;
     if (!claims.length) unclaimedItems += item.lineTotal;
     else
       for (const [id, value] of Object.entries(
@@ -81,7 +103,7 @@ export function calculateBill(bill: Bill) {
   return {
     breakdowns,
     allocated,
-    unclaimed: bill.receipt.grandTotal - allocated,
+    unclaimed: (bill.receipt.grandTotal ?? 0) - allocated,
     unclaimedItems,
     unclaimedAdjustments,
   };

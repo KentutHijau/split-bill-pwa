@@ -2,6 +2,7 @@ import { createWorker, OEM, PSM } from 'tesseract.js';
 import type { ParseProgress, ReceiptParser } from './parser';
 import { parseReceiptText } from './parser';
 import type { OcrDiagnostics, Receipt } from './types';
+import type { Block, Word } from 'tesseract.js';
 
 export const OCR_MAX_LONG_EDGE = 2400;
 export const PREPROCESSING_VERSION = 'makan-ocr-v2';
@@ -15,7 +16,52 @@ export const TESSERACT_VERSION = '6.0.1';
 export const OCR_PAGE_SEGMENTATION_MODE = PSM.SINGLE_COLUMN;
 export const OCR_PSM = '4 (single column, variable-size text)';
 
-export interface Dimensions { width: number; height: number }
+/** Rebuild visual rows across Tesseract blocks before the parser sees text. */
+export function reconstructReceiptRows(blocks: Block[] | null): string {
+  const words: Word[] =
+    blocks?.flatMap((block) =>
+      block.paragraphs.flatMap((paragraph) =>
+        paragraph.lines.flatMap((line) => line.words),
+      ),
+    ) ?? [];
+  const ordered = [...words].sort(
+    (a, b) =>
+      (a.bbox.y0 + a.bbox.y1) / 2 - (b.bbox.y0 + b.bbox.y1) / 2 ||
+      a.bbox.x0 - b.bbox.x0,
+  );
+  const rows: Array<{ center: number; height: number; words: Word[] }> = [];
+  for (const word of ordered) {
+    const center = (word.bbox.y0 + word.bbox.y1) / 2;
+    const height = Math.max(1, word.bbox.y1 - word.bbox.y0);
+    const row = rows.find(
+      (candidate) =>
+        Math.abs(candidate.center - center) <=
+        Math.max(3, Math.min(candidate.height, height) * 0.55),
+    );
+    if (row) {
+      row.words.push(word);
+      const count = row.words.length;
+      row.center = (row.center * (count - 1) + center) / count;
+      row.height = Math.max(row.height, height);
+    } else rows.push({ center, height, words: [word] });
+  }
+  return rows
+    .sort((a, b) => a.center - b.center)
+    .map((row) =>
+      row.words
+        .sort((a, b) => a.bbox.x0 - b.bbox.x0)
+        .map((word) => word.text.trim())
+        .filter(Boolean)
+        .join(' '),
+    )
+    .filter(Boolean)
+    .join('\n');
+}
+
+export interface Dimensions {
+  width: number;
+  height: number;
+}
 
 /** Long edge is capped; the other edge is Math.round(source * scale). */
 export function calculateOcrDimensions(
@@ -23,7 +69,13 @@ export function calculateOcrDimensions(
   height: number,
   maximum = OCR_MAX_LONG_EDGE,
 ): Dimensions {
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || maximum < 1)
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    maximum < 1
+  )
     throw new Error('Invalid image dimensions.');
   const scale = Math.min(1, maximum / Math.max(width, height));
   return {
@@ -33,12 +85,30 @@ export function calculateOcrDimensions(
 }
 
 export function orientationName(orientation: number): string {
-  return ({ 1: 'none', 2: 'mirror horizontal', 3: 'rotate 180°', 4: 'mirror vertical',
-    5: 'transpose', 6: 'rotate 90° clockwise', 7: 'transverse', 8: 'rotate 90° counter-clockwise' } as Record<number, string>)[orientation] ?? 'none';
+  return (
+    (
+      {
+        1: 'none',
+        2: 'mirror horizontal',
+        3: 'rotate 180°',
+        4: 'mirror vertical',
+        5: 'transpose',
+        6: 'rotate 90° clockwise',
+        7: 'transverse',
+        8: 'rotate 90° counter-clockwise',
+      } as Record<number, string>
+    )[orientation] ?? 'none'
+  );
 }
 
-export function orientedDimensions(width: number, height: number, orientation: number): Dimensions {
-  return orientation >= 5 && orientation <= 8 ? { width: height, height: width } : { width, height };
+export function orientedDimensions(
+  width: number,
+  height: number,
+  orientation: number,
+): Dimensions {
+  return orientation >= 5 && orientation <= 8
+    ? { width: height, height: width }
+    : { width, height };
 }
 
 /** Reads JPEG EXIF orientation without asking the browser to interpret it. */
@@ -47,11 +117,17 @@ export function readExifOrientation(bytes: ArrayBuffer): number {
   if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return 1;
   let offset = 2;
   while (offset + 4 <= view.byteLength) {
-    const marker = view.getUint16(offset); offset += 2;
+    const marker = view.getUint16(offset);
+    offset += 2;
     if ((marker & 0xff00) !== 0xff00) break;
-    const length = view.getUint16(offset); offset += 2;
+    const length = view.getUint16(offset);
+    offset += 2;
     if (length < 2 || offset + length - 2 > view.byteLength) break;
-    if (marker === 0xffe1 && length >= 10 && view.getUint32(offset) === 0x45786966) {
+    if (
+      marker === 0xffe1 &&
+      length >= 10 &&
+      view.getUint32(offset) === 0x45786966
+    ) {
       const tiff = offset + 6;
       const little = view.getUint16(tiff) === 0x4949;
       const get16 = (at: number) => view.getUint16(at, little);
@@ -73,31 +149,51 @@ export function readExifOrientation(bytes: ArrayBuffer): number {
   return 1;
 }
 
-export function fingerprintPayload(width: number, height: number, rgba: Uint8ClampedArray): Uint8Array {
+export function fingerprintPayload(
+  width: number,
+  height: number,
+  rgba: Uint8ClampedArray,
+): Uint8Array {
   const payload = new Uint8Array(8 + rgba.length);
   const view = new DataView(payload.buffer);
-  view.setUint32(0, width); view.setUint32(4, height);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
   payload.set(rgba, 8);
   return payload;
 }
 
 export async function sha256Hex(payload: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', payload);
-  return [...new Uint8Array(digest)].map((n) => n.toString(16).padStart(2, '0')).join('');
+  return [...new Uint8Array(digest)]
+    .map((n) => n.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-function applyOrientation(context: CanvasRenderingContext2D, orientation: number, width: number, height: number) {
+function applyOrientation(
+  context: CanvasRenderingContext2D,
+  orientation: number,
+  width: number,
+  height: number,
+) {
   // Matrix maps raw source coordinates into an orientation-normalized canvas.
-  const matrices: Record<number, [number, number, number, number, number, number]> = {
-    2: [-1, 0, 0, 1, width, 0], 3: [-1, 0, 0, -1, width, height],
-    4: [1, 0, 0, -1, 0, height], 5: [0, 1, 1, 0, 0, 0],
-    6: [0, 1, -1, 0, height, 0], 7: [0, -1, -1, 0, height, width],
+  const matrices: Record<
+    number,
+    [number, number, number, number, number, number]
+  > = {
+    2: [-1, 0, 0, 1, width, 0],
+    3: [-1, 0, 0, -1, width, height],
+    4: [1, 0, 0, -1, 0, height],
+    5: [0, 1, 1, 0, 0, 0],
+    6: [0, 1, -1, 0, height, 0],
+    7: [0, -1, -1, 0, height, width],
     8: [0, -1, 1, 0, 0, width],
   };
   if (matrices[orientation]) context.transform(...matrices[orientation]);
 }
 
-async function preprocess(image: Blob): Promise<{ blob: Blob; diagnostics: OcrDiagnostics }> {
+async function preprocess(
+  image: Blob,
+): Promise<{ blob: Blob; diagnostics: OcrDiagnostics }> {
   const sourceBytes = await image.arrayBuffer();
   const orientation = readExifOrientation(sourceBytes);
   // `none` prevents createImageBitmap from silently applying EXIF before our explicit transform.
@@ -106,9 +202,13 @@ async function preprocess(image: Blob): Promise<{ blob: Blob; diagnostics: OcrDi
   const oriented = orientedDimensions(raw.width, raw.height, orientation);
   const output = calculateOcrDimensions(oriented.width, oriented.height);
   const canvas = document.createElement('canvas');
-  canvas.width = output.width; canvas.height = output.height;
+  canvas.width = output.width;
+  canvas.height = output.height;
   const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) { bitmap.close(); throw new Error('This browser cannot prepare the receipt image.'); }
+  if (!context) {
+    bitmap.close();
+    throw new Error('This browser cannot prepare the receipt image.');
+  }
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
   const scaleX = output.width / oriented.width;
@@ -121,44 +221,101 @@ async function preprocess(image: Blob): Promise<{ blob: Blob; diagnostics: OcrDi
   const pixels = context.getImageData(0, 0, output.width, output.height);
   // Integer BT.601 grayscale followed by fixed 5/4 contrast; alpha is preserved.
   for (let i = 0; i < pixels.data.length; i += 4) {
-    const grey = (77 * pixels.data[i] + 150 * pixels.data[i + 1] + 29 * pixels.data[i + 2] + 128) >> 8;
-    const contrast = Math.max(0, Math.min(255, Math.round((grey - 128) * 5 / 4 + 128)));
+    const grey =
+      (77 * pixels.data[i] +
+        150 * pixels.data[i + 1] +
+        29 * pixels.data[i + 2] +
+        128) >>
+      8;
+    const contrast = Math.max(
+      0,
+      Math.min(255, Math.round(((grey - 128) * 5) / 4 + 128)),
+    );
     pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = contrast;
   }
   context.putImageData(pixels, 0, 0);
   let fingerprint = 'unavailable';
-  try { fingerprint = await sha256Hex(fingerprintPayload(output.width, output.height, pixels.data)); } catch { /* diagnostics must not abort OCR */ }
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-    (value) => value ? resolve(value) : reject(new Error('Could not prepare image.')), 'image/png'));
+  try {
+    fingerprint = await sha256Hex(
+      fingerprintPayload(output.width, output.height, pixels.data),
+    );
+  } catch {
+    /* diagnostics must not abort OCR */
+  }
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      (value) =>
+        value ? resolve(value) : reject(new Error('Could not prepare image.')),
+      'image/png',
+    ),
+  );
   const file = image instanceof File ? image : undefined;
-  return { blob, diagnostics: {
-    sourceFileName: file?.name ?? '(blob)', sourceMimeType: image.type || '(unknown)', sourceFileSize: image.size,
-    originalWidth: raw.width, originalHeight: raw.height, exifOrientation: orientation,
-    orientationTransform: orientationName(orientation), normalizedWidth: output.width, normalizedHeight: output.height,
-    maximumDimension: OCR_MAX_LONG_EDGE, preprocessingVersion: PREPROCESSING_VERSION,
-    ocrLanguage: OCR_LANGUAGE, tesseractVersion: TESSERACT_VERSION, engineMode: 'OEM 1 (LSTM only)',
-    pageSegmentationMode: OCR_PSM, userAgent: navigator.userAgent, rawOcrCharacterCount: 0, fingerprint,
-  }};
+  return {
+    blob,
+    diagnostics: {
+      sourceFileName: file?.name ?? '(blob)',
+      sourceMimeType: image.type || '(unknown)',
+      sourceFileSize: image.size,
+      originalWidth: raw.width,
+      originalHeight: raw.height,
+      exifOrientation: orientation,
+      orientationTransform: orientationName(orientation),
+      normalizedWidth: output.width,
+      normalizedHeight: output.height,
+      maximumDimension: OCR_MAX_LONG_EDGE,
+      preprocessingVersion: PREPROCESSING_VERSION,
+      ocrLanguage: OCR_LANGUAGE,
+      tesseractVersion: TESSERACT_VERSION,
+      engineMode: 'OEM 1 (LSTM only)',
+      pageSegmentationMode: OCR_PSM,
+      userAgent: navigator.userAgent,
+      rawOcrCharacterCount: 0,
+      fingerprint,
+    },
+  };
 }
 
 export class LocalOcrReceiptParser implements ReceiptParser {
-  async parse(image: Blob, onProgress?: (update: ParseProgress) => void): Promise<Receipt> {
+  async parse(
+    image: Blob,
+    onProgress?: (update: ParseProgress) => void,
+  ): Promise<Receipt> {
     onProgress?.({ stage: 'preparing', progress: 0 });
     const prepared = await preprocess(image);
     onProgress?.({ stage: 'reading', progress: 0 });
-    const worker = await createWorker(OCR_LANGUAGE, OEM.LSTM_ONLY, { logger(message) {
-      if (message.status === 'recognizing text') onProgress?.({ stage: 'reading', progress: message.progress });
-    }});
+    const worker = await createWorker(OCR_LANGUAGE, OEM.LSTM_ONLY, {
+      logger(message) {
+        if (message.status === 'recognizing text')
+          onProgress?.({ stage: 'reading', progress: message.progress });
+      },
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEGMENTATION_MODE, preserve_interword_spaces: '1' });
-      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(
-        'Reading timed out. Please retry with a clearer, closely cropped photo.')), 120_000); });
-      const result = await Promise.race([worker.recognize(prepared.blob), timeout]);
+      await worker.setParameters({
+        tessedit_pageseg_mode: OCR_PAGE_SEGMENTATION_MODE,
+        preserve_interword_spaces: '1',
+      });
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Reading timed out. Please retry with a clearer, closely cropped photo.',
+              ),
+            ),
+          120_000,
+        );
+      });
+      const result = await Promise.race([
+        worker.recognize(prepared.blob, {}, { blocks: true }),
+        timeout,
+      ]);
       onProgress?.({ stage: 'understanding', progress: 1 });
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const receipt = parseReceiptText(result.data.text);
-      prepared.diagnostics.rawOcrCharacterCount = result.data.text.length;
+      const rowText = reconstructReceiptRows(result.data.blocks);
+      const parserInput = rowText || result.data.text;
+      const receipt = parseReceiptText(parserInput);
+      prepared.diagnostics.rawOcrCharacterCount = parserInput.length;
       receipt.ocrDiagnostics = prepared.diagnostics;
       receipt.ocrInputImage = prepared.blob;
       onProgress?.({ stage: 'checking', progress: 1 });
