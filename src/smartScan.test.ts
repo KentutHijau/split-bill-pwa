@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mapExtractedReceipt, smartScan, SmartScanError } from './smartScan';
+import {
+  getSmartScanDiagnostics,
+  mapExtractedReceipt,
+  smartScan,
+  SmartScanError,
+} from './smartScan';
 import type { ExtractedReceipt } from './types';
 
 const extracted: ExtractedReceipt = {
@@ -75,8 +80,28 @@ describe('Smart Scan transport', () => {
     await expect(
       smartScan(new Blob(['x'], { type: 'image/png' }), { fetch: mock }),
     ).resolves.toMatchObject({ restaurantName: 'Cafe' });
+    expect(mock).toHaveBeenCalledWith(
+      'https://example.supabase.co/functions/v1/parse-receipt',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
-  it('turns network and malformed responses into controlled errors', async () => {
+  it('constructs the exact deployed function URL without exposing its key', () => {
+    vi.stubEnv(
+      'VITE_SUPABASE_URL',
+      'https://vsqvyfoizzjecvskyngn.supabase.co/',
+    );
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'do-not-report-this');
+    expect(getSmartScanDiagnostics()).toEqual({
+      configured: true,
+      hostname: 'vsqvyfoizzjecvskyngn.supabase.co',
+      functionUrl:
+        'https://vsqvyfoizzjecvskyngn.supabase.co/functions/v1/parse-receipt',
+    });
+    expect(JSON.stringify(getSmartScanDiagnostics())).not.toContain(
+      'do-not-report-this',
+    );
+  });
+  it('distinguishes transport, HTTP, JSON, and schema failures', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');
     vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'public');
     await expect(
@@ -85,12 +110,35 @@ describe('Smart Scan transport', () => {
           .fn<typeof fetch>()
           .mockRejectedValue(new Error('secret detail')),
       }),
-    ).rejects.toMatchObject({ code: 'network' });
+    ).rejects.toMatchObject({
+      code: 'network-or-cors',
+      diagnostics: { outcome: 'fetch/network' },
+    });
+    await expect(
+      smartScan(new Blob(), {
+        fetch: vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(new Response('{}', { status: 403 })),
+      }),
+    ).rejects.toMatchObject({
+      code: 'http',
+      diagnostics: { outcome: 'http-response', httpStatus: 403 },
+    });
+    await expect(
+      smartScan(new Blob(), {
+        fetch: vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(new Response('not json')),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-json' });
     await expect(
       smartScan(new Blob(), {
         fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response('{}')),
       }),
-    ).rejects.toMatchObject({ code: 'invalid' });
+    ).rejects.toMatchObject({
+      code: 'invalid-schema',
+      diagnostics: { outcome: 'response-parsing', httpStatus: 200 },
+    });
   });
   it('times out a stalled request', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');

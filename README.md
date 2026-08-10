@@ -42,7 +42,18 @@ Deploy with:
 
 The public Pages app has no accounts, so JWT verification is disabled for this function. Origin, POST-only, MIME, 8 MiB, fixed upstream/model/prompt and timeout controls reduce abuse, but CORS can be forged outside a browser. Add gateway/WAF quotas or rate limiting before high-volume launch.
 
-Create GitHub Actions repository values `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; the Pages workflow injects them during Vite build. Both are public browser configuration by design. Never configure `GEMINI_API_KEY` in GitHub or as `VITE_*`. Troubleshooting: “not configured” means the build values are absent; origin errors mean `ALLOWED_ORIGINS` is not exact; 413/415 means size/type rejection; retry transient failures or use Offline Scan.
+Set the GitHub Actions repository variables `VITE_SUPABASE_URL` to `https://vsqvyfoizzjecvskyngn.supabase.co` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the browser-safe publishable key. The Pages workflow validates that both are present and that the URL is an `https://*.supabase.co` base URL before injecting them during the Vite build; it does not print their values. The resulting function URL is `https://vsqvyfoizzjecvskyngn.supabase.co/functions/v1/parse-receipt`. Both values are public browser configuration by design. Never configure `GEMINI_API_KEY` in GitHub or as `VITE_*`.
+
+For a non-sensitive connectivity check, send an `OPTIONS` request with the production Pages origin; a successful preflight returns 204 and the matching `Access-Control-Allow-Origin`, methods, and headers. No API key is required for this check:
+
+```sh
+curl -i -X OPTIONS 'https://vsqvyfoizzjecvskyngn.supabase.co/functions/v1/parse-receipt' \
+  -H 'Origin: https://kentuthijau.github.io' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization,apikey,content-type'
+```
+
+The Smart Scan connection diagnostics disclose only configuration presence, hostname, function URL, failure stage, and HTTP status—never the key or receipt. Browsers intentionally expose CORS/preflight rejection and DNS/transport failure identically as a rejected `fetch`, so that category is reported as `network-or-cors`; use the preflight command and Edge Function logs to separate them. “Not configured” means the build key is absent; HTTP 403 commonly means `ALLOWED_ORIGINS` is not exact; 413/415 means size/type rejection.
 
 ## Try the workflow
 
