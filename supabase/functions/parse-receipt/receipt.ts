@@ -108,7 +108,7 @@ export const receiptSchema = {
     'warnings',
   ],
   properties: {
-    merchantName: { type: 'string', nullable: true },
+    merchantName: { type: ['string', 'null'] },
     items: {
       type: 'array',
       maxItems: MAX_ITEMS,
@@ -117,18 +117,18 @@ export const receiptSchema = {
         required: ['name', 'quantity', 'unitPriceCents', 'lineTotalCents'],
         properties: {
           name: { type: 'string' },
-          quantity: { type: 'integer', nullable: true },
-          unitPriceCents: { type: 'integer', nullable: true },
-          lineTotalCents: { type: 'integer', nullable: true },
+          quantity: { type: ['integer', 'null'] },
+          unitPriceCents: { type: ['integer', 'null'] },
+          lineTotalCents: { type: ['integer', 'null'] },
         },
       },
     },
-    subtotalCents: { type: 'integer', nullable: true },
+    subtotalCents: { type: ['integer', 'null'] },
     serviceCharges: adjustmentSchema(),
     taxes: adjustmentSchema(),
     discounts: adjustmentSchema(),
     otherAdjustments: adjustmentSchema(),
-    grandTotalCents: { type: 'integer', nullable: true },
+    grandTotalCents: { type: ['integer', 'null'] },
     warnings: { type: 'array', items: { type: 'string' }, maxItems: 30 },
   },
 };
