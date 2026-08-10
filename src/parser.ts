@@ -17,7 +17,7 @@ export class DemoReceiptParser implements ReceiptParser {
   }
 }
 
-const id = () => crypto.randomUUID();
+const id = (kind: string, index: number) => `ocr-${kind}-${index + 1}`;
 const amountAtEnd = /(?:S?\$\s*)?(-?\s*\d{1,5}[.,]\d{2})\s*$/i;
 const normalizeAmount = (value: string) => {
   const normalized = value.replace(/\s/g, '').replace(',', '.');
@@ -38,8 +38,9 @@ const adjustmentRules: Array<[RegExp, AdjustmentKind]> = [
 /** Deterministic, conservative conversion of OCR text into editable receipt data. */
 export function parseReceiptText(rawText: string): Receipt {
   const lines = rawText
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g, ' ').trim())
     .filter(Boolean);
   const receipt: Receipt = {
     restaurantName: '',
@@ -72,7 +73,7 @@ export function parseReceiptText(rawText: string): Receipt {
         const kind = adjustment[1];
         const negative = kind === 'DISCOUNT' && amount > 0 ? -amount : amount;
         receipt.adjustments.push({
-          id: id(),
+          id: id('adjustment', receipt.adjustments.length),
           label: line.slice(0, match?.index).trim(),
           kind,
           amount: negative,
@@ -120,7 +121,7 @@ export function parseReceiptText(rawText: string): Receipt {
     const unitPrice =
       lineTotal % quantity === 0 ? lineTotal / quantity : lineTotal;
     receipt.items.push({
-      id: id(),
+      id: id('item', receipt.items.length),
       name: description,
       quantity,
       unitPrice,

@@ -69,4 +69,14 @@ describe('Singapore OCR receipt parser', () => {
     expect(r.grandTotal).toBe(0);
     expect(r.parseWarnings?.length).toBeGreaterThan(1);
   });
+  it('is equivalent for LF, CRLF, CR, tabs, repeated and Unicode whitespace', () => {
+    const lf = parseReceiptText('MAKAN HOUSE\nChicken Rice 5.50\nSub Total 5.50\nTOTAL 5.50');
+    const noisy = parseReceiptText('MAKAN\u00a0\u2003HOUSE\r\nChicken\t  Rice  5.50\rSub\u202fTotal 5.50\r\nTOTAL 5.50');
+    expect(noisy).toEqual({ ...lf, rawOcrText: noisy.rawOcrText });
+  });
+  it('returns stable IDs and output for identical input', () => {
+    const text = 'CAFE\nTea 1,20\nGST 0,11\nTOTAL 1,31';
+    expect(parseReceiptText(text)).toEqual(parseReceiptText(text));
+    expect(parseReceiptText(text).items[0].id).toBe('ocr-item-1');
+  });
 });

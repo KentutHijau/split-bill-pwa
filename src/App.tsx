@@ -4,7 +4,7 @@ import { demos } from './demos';
 import { formatMoney, parseMoney } from './money';
 import { IndexedDbBillRepository } from './storage';
 import type { ParseProgress } from './parser';
-import type { AdjustmentKind, Bill, PaymentStatus, Receipt } from './types';
+import type { AdjustmentKind, Bill, OcrDiagnostics, PaymentStatus, Receipt } from './types';
 const repo = new IndexedDbBillRepository();
 const uid = () => crypto.randomUUID();
 type Screen = 'home' | 'receipt' | 'people' | 'claim' | 'dashboard';
@@ -29,6 +29,24 @@ const moneyInput = (c: number, onChange: (n: number) => void) => (
     }}
   />
 );
+const diagnosticsText = (d: OcrDiagnostics) => [
+  `Source file: ${d.sourceFileName}`,
+  `Source MIME type: ${d.sourceMimeType}`,
+  `Source file size: ${d.sourceFileSize} bytes`,
+  `Original decoded size: ${d.originalWidth} × ${d.originalHeight}`,
+  `EXIF orientation: ${d.exifOrientation}`,
+  `Orientation transform: ${d.orientationTransform}`,
+  `Normalized OCR size: ${d.normalizedWidth} × ${d.normalizedHeight}`,
+  `Maximum long edge: ${d.maximumDimension}px`,
+  `Preprocessing version: ${d.preprocessingVersion}`,
+  `OCR language: ${d.ocrLanguage}`,
+  `Tesseract.js: ${d.tesseractVersion}`,
+  `Engine mode: ${d.engineMode}`,
+  `Page segmentation: ${d.pageSegmentationMode}`,
+  `Normalized pixel fingerprint (SHA-256): ${d.fingerprint}`,
+  `Raw OCR character count: ${d.rawOcrCharacterCount}`,
+  `Browser: ${d.userAgent}`,
+].join('\n');
 class BlobImage extends Component<{ blob: Blob; alt: string }> {
   private src = URL.createObjectURL(this.props.blob);
   componentDidUpdate(previous: Readonly<{ blob: Blob; alt: string }>) {
@@ -72,6 +90,8 @@ export default function App() {
       r.image = file;
       r.rawOcrText = undefined;
       r.parseWarnings = undefined;
+      r.ocrDiagnostics = undefined;
+      r.ocrInputImage = undefined;
     });
     setOcrError('');
     setOverride(false);
@@ -258,6 +278,8 @@ export default function App() {
                         delete r.image;
                         delete r.rawOcrText;
                         delete r.parseWarnings;
+                        delete r.ocrDiagnostics;
+                        delete r.ocrInputImage;
                       })
                     }
                   >
@@ -343,6 +365,23 @@ export default function App() {
                     Retry
                   </button>
                 </div>
+              )}
+              {receipt.ocrDiagnostics && (
+                <details className="diagnostics">
+                  <summary>OCR diagnostics</summary>
+                  <p className="diagnostic-note">Developer comparison data only. It contains no detected receipt text.</p>
+                  <pre>{diagnosticsText(receipt.ocrDiagnostics)}</pre>
+                  <button className="secondary" onClick={() => void navigator.clipboard.writeText(diagnosticsText(receipt.ocrDiagnostics!))}>
+                    Copy diagnostics
+                  </button>
+                  {receipt.ocrInputImage && (
+                    <details>
+                      <summary>View OCR input image</summary>
+                      <p className="diagnostic-note">Diagnostic view: the normalized, preprocessed PNG sent to Tesseract.</p>
+                      <BlobImage blob={receipt.ocrInputImage} alt="Normalized OCR diagnostic input" />
+                    </details>
+                  )}
+                </details>
               )}
             </section>
           )}
