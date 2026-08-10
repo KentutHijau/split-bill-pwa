@@ -49,6 +49,8 @@ export interface Receipt {
   /** Exact metadata-free PNG passed to Tesseract, retained for local inspection. */
   ocrInputImage?: Blob;
   parseWarnings?: string[];
+  /** Plausible item-area OCR lines that the conservative parser did not classify. */
+  possibleMissedLines?: string[];
 }
 export type PaymentStatus = 'UNPAID' | 'MARKED_SENT' | 'CONFIRMED_RECEIVED';
 export interface Participant {

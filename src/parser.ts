@@ -21,10 +21,14 @@ const id = (kind: string, index: number) => `ocr-${kind}-${index + 1}`;
 // The final monetary value may be followed by harmless OCR glyphs, but not words.
 const amountAtEnd =
   /(?:S?\$\s*)?(-?\s*\d{1,5}[.,]\d{2})(?=\s*[^\p{L}\p{N}]*$)/iu;
+// An explicit label gives enough context to tolerate a short OCR-garbage
+// suffix without digits. Generic totals still require an amount at the end.
+const amountAfterGrandTotal =
+  /\bgrand\s*total\b\s*[:=\-–—]?\s*(?:S?\$\s*)?(-?\s*\d{1,5}[.,]\d{2})(?:\s+[^\d\s]{1,8})?\s*$/iu;
 const normalizeAmount = (value: string) =>
   Math.round(Number(value.replace(/\s/g, '').replace(',', '.')) * 100);
 const metaLine =
-  /(?:date|time|tel|phone|receipt|invoice|table|queue|transaction|trans\b|card|visa|master|approval|auth|reference|ref\b|gst\s*(?:reg|no)|postal|postcode|member|loyalty|points|reward|tender|cash|change|cashier|pax|dine\s*in|thank\s*you|please\s*come|address|shift)/i;
+  /\b(?:date|time|tel|phone|receipt|invoice|table|queue|transaction|trans\b|card|visa|master|approval|auth|reference|ref\b|gst\s*(?:reg|no)|postal|postcode|member|loyalty|points|reward|tender|cash|change|cashier|pax|dine\s*in|thank\s*you|please\s*come|address|shift)/i;
 const subtotalLabel = /\bsub\s*[-–—]?\s*total\b/i;
 const explicitTotalLabel = /\bgrand\s*total\b/i;
 const genericTotalLabel =
@@ -35,6 +39,16 @@ const adjustmentRules: Array<[RegExp, AdjustmentKind]> = [
   [/\b(?:discount|disc\b|voucher|promo)\b/i, 'DISCOUNT'],
   [/\b(?:rounding|round\s*adj(?:ustment)?)\b/i, 'OTHER'],
 ];
+const modifierLine = /^(?:\d{1,2}\s+)?[*¥￥|~^`'“”]{1,}\s*\p{L}/u;
+const itemHeaderLine = /\b(?:qty|quantity)\b.*\bitem\b|\bitem\s+name\b/i;
+
+const cleanMerchantName = (line: string) =>
+  line
+    // Receipt-edge decoration is often read as a currency glyph plus a run of
+    // zeroes. Remove only this unambiguous prefix; retain the merchant wording.
+    .replace(/^[^\p{L}\s]*\d{2,}\s+(?=\p{L}{2})/u, '')
+    .replace(/\s+[^\p{L}\p{N})\]]+$/u, '')
+    .trim();
 
 /** Deterministic precedence: summary/adjustment, metadata/payment, item, ignore. */
 export function parseReceiptText(rawText: string): Receipt {
@@ -60,15 +74,19 @@ export function parseReceiptText(rawText: string): Receipt {
     parseWarnings: [],
   };
   const structural = new Set<number>();
+  const itemLines = new Set<number>();
   let foundTotal = false;
   let foundExplicitTotal = false;
+  let subtotalIndex = lines.length;
 
   // Summary classification happens first and claims a line permanently.
   lines.forEach((line, index) => {
-    const match = line.match(amountAtEnd);
+    const explicit = explicitTotalLabel.test(line);
+    const match = line.match(explicit ? amountAfterGrandTotal : amountAtEnd);
     const amount = match ? normalizeAmount(match[1]) : undefined;
     if (subtotalLabel.test(line)) {
       structural.add(index);
+      subtotalIndex = Math.min(subtotalIndex, index);
       if (amount !== undefined) {
         receipt.subtotal = amount;
         receipt.subtotalSource = 'DETECTED';
@@ -91,7 +109,6 @@ export function parseReceiptText(rawText: string): Receipt {
         receipt.parseWarnings!.push(`Could not read an amount for: ${line}`);
       return;
     }
-    const explicit = explicitTotalLabel.test(line);
     const generic = genericTotalLabel.test(line) && !subtotalLabel.test(line);
     if (explicit || generic) {
       structural.add(index);
@@ -103,7 +120,7 @@ export function parseReceiptText(rawText: string): Receipt {
     }
   });
 
-  receipt.restaurantName =
+  receipt.restaurantName = cleanMerchantName(
     lines.find(
       (line, index) =>
         index < 6 &&
@@ -111,7 +128,8 @@ export function parseReceiptText(rawText: string): Receipt {
         !metaLine.test(line) &&
         !amountAtEnd.test(line) &&
         /[A-Za-z]{2}/.test(line),
-    ) ?? '';
+    ) ?? '',
+  );
 
   lines.forEach((line, index) => {
     if (structural.has(index) || metaLine.test(line)) return;
@@ -145,11 +163,26 @@ export function parseReceiptText(rawText: string): Receipt {
       unitPrice,
       lineTotal,
     });
+    itemLines.add(index);
     if (lineTotal % quantity !== 0)
       receipt.parseWarnings!.push(
         `Check quantity and unit price for: ${description}`,
       );
   });
+  receipt.possibleMissedLines = lines.filter(
+    (line, index) =>
+      index < subtotalIndex &&
+      !structural.has(index) &&
+      !itemLines.has(index) &&
+      !metaLine.test(line) &&
+      !modifierLine.test(line) &&
+      !itemHeaderLine.test(line) &&
+      index > 0 &&
+      /[A-Za-z]{2}/.test(line) &&
+      // Merchant/address prose is unlikely to be a missed item unless it is in
+      // the item area, which normally begins after a QTY/ITEM header.
+      lines.slice(0, index).some((candidate) => itemHeaderLine.test(candidate)),
+  );
   const itemSum = receipt.items.reduce((sum, item) => sum + item.lineTotal, 0);
   if (!receipt.subtotalSource)
     receipt.parseWarnings!.push('Receipt subtotal was not detected.');
