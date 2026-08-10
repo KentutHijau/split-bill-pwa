@@ -53,6 +53,35 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      - name: Verify Smart Scan production configuration
+        run: |
+          node <<'NODE'
+          const { VITE_SUPABASE_URL: rawUrl, VITE_SUPABASE_PUBLISHABLE_KEY: key } = process.env;
+          if (!rawUrl) throw new Error('VITE_SUPABASE_URL repository variable is required');
+          if (!key) throw new Error('VITE_SUPABASE_PUBLISHABLE_KEY repository variable is required');
+          let url;
+          try {
+            url = new URL(rawUrl);
+          } catch {
+            throw new Error('VITE_SUPABASE_URL must be a valid URL');
+          }
+          const validHost = /^[a-z0-9-]+\.supabase\.co$/i.test(url.hostname);
+          const validBase =
+            url.protocol === 'https:' &&
+            validHost &&
+            !url.username &&
+            !url.password &&
+            !url.port &&
+            (url.pathname === '/' || url.pathname === '') &&
+            !url.search &&
+            !url.hash;
+          if (!validBase)
+            throw new Error('VITE_SUPABASE_URL must be an https://*.supabase.co base URL');
+          NODE
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
       - name: Build production application
         run: npm run build
         env:

@@ -3,7 +3,13 @@ import { calculateBill, reconcile, reconcileItems } from './calculations';
 import { demos } from './demos';
 import { formatMoney, parseMoney } from './money';
 import { IndexedDbBillRepository } from './storage';
-import { smartScan, smartScanConfigured } from './smartScan';
+import {
+  getSmartScanDiagnostics,
+  smartScan,
+  smartScanConfigured,
+  SmartScanError,
+} from './smartScan';
+import type { SmartScanDiagnostics } from './smartScan';
 import type { ParseProgress } from './parser';
 import type {
   AdjustmentKind,
@@ -79,7 +85,8 @@ export default function App() {
     [override, setOverride] = useState(false),
     [ocrProgress, setOcrProgress] = useState<ParseProgress>(),
     [ocrError, setOcrError] = useState(''),
-    [smartProgress, setSmartProgress] = useState<string>();
+    [smartProgress, setSmartProgress] = useState<string>(),
+    [smartDiagnostics, setSmartDiagnostics] = useState<SmartScanDiagnostics>();
   useEffect(() => {
     repo.list().then(setSaved);
   }, []);
@@ -128,6 +135,7 @@ export default function App() {
   const readReceiptSmart = async () => {
     if (!receipt.image || smartProgress) return;
     setOcrError('');
+    setSmartDiagnostics(getSmartScanDiagnostics());
     setSmartProgress('Preparing receipt');
     try {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -140,6 +148,8 @@ export default function App() {
       setSmartProgress('Checking totals');
       setOverride(false);
     } catch (error) {
+      if (error instanceof SmartScanError)
+        setSmartDiagnostics(error.diagnostics);
       setOcrError(
         error instanceof Error
           ? error.message
@@ -385,6 +395,21 @@ export default function App() {
                 <div className="ocr-error">
                   Smart Scan is not configured. You can still use Offline Scan.
                 </div>
+              )}
+              {smartDiagnostics && (
+                <details className="diagnostics">
+                  <summary>Smart Scan connection diagnostics</summary>
+                  <pre>
+                    {[
+                      `Configuration present: ${smartDiagnostics.configured ? 'yes' : 'no'}`,
+                      `Supabase hostname: ${smartDiagnostics.hostname ?? 'not available'}`,
+                      `Function URL: ${smartDiagnostics.functionUrl ?? 'not available'}`,
+                      `Stage: ${smartDiagnostics.outcome ?? 'not attempted'}`,
+                      `Failure: ${smartDiagnostics.failure ?? 'none'}`,
+                      `HTTP status: ${smartDiagnostics.httpStatus ?? 'no response'}`,
+                    ].join('\n')}
+                  </pre>
+                </details>
               )}
               {smartProgress && (
                 <div className="progress" role="status">
