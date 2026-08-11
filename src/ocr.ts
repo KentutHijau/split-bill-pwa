@@ -29,14 +29,21 @@ export function reconstructReceiptRows(blocks: Block[] | null): string {
       (a.bbox.y0 + a.bbox.y1) / 2 - (b.bbox.y0 + b.bbox.y1) / 2 ||
       a.bbox.x0 - b.bbox.x0,
   );
+  const amountWord = /^(?:S?\$)?-?\d{1,5}[.,]\d{2}[^\p{L}\p{N}]*$/iu;
+  const amounts = ordered.filter((word) => amountWord.test(word.text.trim()));
+  const content = ordered.filter((word) => !amountWord.test(word.text.trim()));
   const rows: Array<{ center: number; height: number; words: Word[] }> = [];
-  for (const word of ordered) {
+  // Build baselines from descriptive text first. A narrow, right-aligned price
+  // is frequently emitted as a separate Tesseract block whose baseline is a
+  // few pixels away from the item block; allowing it to create a row first can
+  // therefore shift every following price onto the wrong item.
+  for (const word of content) {
     const center = (word.bbox.y0 + word.bbox.y1) / 2;
     const height = Math.max(1, word.bbox.y1 - word.bbox.y0);
     const row = rows.find(
       (candidate) =>
         Math.abs(candidate.center - center) <=
-        Math.max(3, Math.min(candidate.height, height) * 0.55),
+        Math.max(3, Math.min(candidate.height, height) * 0.7),
     );
     if (row) {
       row.words.push(word);
@@ -44,6 +51,23 @@ export function reconstructReceiptRows(blocks: Block[] | null): string {
       row.center = (row.center * (count - 1) + center) / count;
       row.height = Math.max(row.height, height);
     } else rows.push({ center, height, words: [word] });
+  }
+  // Attach terminal monetary cells to the closest established visual row.
+  // The distance is bounded, so an amount without spatial support remains its
+  // own row rather than being guessed onto a nearby description.
+  for (const word of amounts) {
+    const center = (word.bbox.y0 + word.bbox.y1) / 2;
+    const height = Math.max(1, word.bbox.y1 - word.bbox.y0);
+    const nearest = [...rows].sort(
+      (a, b) => Math.abs(a.center - center) - Math.abs(b.center - center),
+    )[0];
+    if (
+      nearest &&
+      Math.abs(nearest.center - center) <=
+        Math.max(4, Math.max(nearest.height, height) * 1.15)
+    )
+      nearest.words.push(word);
+    else rows.push({ center, height, words: [word] });
   }
   return rows
     .sort((a, b) => a.center - b.center)

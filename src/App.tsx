@@ -3,13 +3,6 @@ import { calculateBill, reconcile, reconcileItems } from './calculations';
 import { demos } from './demos';
 import { formatMoney, parseMoney } from './money';
 import { IndexedDbBillRepository } from './storage';
-import {
-  getSmartScanDiagnostics,
-  smartScan,
-  smartScanConfigured,
-  SmartScanError,
-} from './smartScan';
-import type { SmartScanDiagnostics } from './smartScan';
 import type { ParseProgress } from './parser';
 import type {
   AdjustmentKind,
@@ -84,9 +77,7 @@ export default function App() {
     [saved, setSaved] = useState<Bill[]>([]),
     [override, setOverride] = useState(false),
     [ocrProgress, setOcrProgress] = useState<ParseProgress>(),
-    [ocrError, setOcrError] = useState(''),
-    [smartProgress, setSmartProgress] = useState<string>(),
-    [smartDiagnostics, setSmartDiagnostics] = useState<SmartScanDiagnostics>();
+    [ocrError, setOcrError] = useState('');
   useEffect(() => {
     repo.list().then(setSaved);
   }, []);
@@ -130,33 +121,6 @@ export default function App() {
       );
     } finally {
       setOcrProgress(undefined);
-    }
-  };
-  const readReceiptSmart = async () => {
-    if (!receipt.image || smartProgress) return;
-    setOcrError('');
-    setSmartDiagnostics(getSmartScanDiagnostics());
-    setSmartProgress('Preparing receipt');
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      setSmartProgress('Uploading securely');
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      setSmartProgress('Reading receipt');
-      const parsed = await smartScan(receipt.image);
-      setSmartProgress('Structuring bill');
-      setReceipt(parsed);
-      setSmartProgress('Checking totals');
-      setOverride(false);
-    } catch (error) {
-      if (error instanceof SmartScanError)
-        setSmartDiagnostics(error.diagnostics);
-      setOcrError(
-        error instanceof Error
-          ? error.message
-          : 'Smart Scan failed. Please retry or use Offline Scan.',
-      );
-    } finally {
-      setSmartProgress(undefined);
     }
   };
   const startPeople = () => {
@@ -369,73 +333,23 @@ export default function App() {
           {receipt.image && (
             <section className="ocr-panel">
               <p>
-                <b>Smart Scan</b>
+                <b>Receipt scan</b>
                 <br />
                 <small>
-                  Better receipt understanding. Your image is securely sent to
-                  our receipt service for Gemini processing and is not
-                  intentionally stored by Makan Split.
+                  Receipt recognition runs locally in this browser. Nothing is
+                  sent to a receipt service.
                 </small>
               </p>
               <button
                 className="primary full"
-                disabled={
-                  Boolean(ocrProgress || smartProgress) ||
-                  !smartScanConfigured()
-                }
-                onClick={() => void readReceiptSmart()}
-              >
-                {smartProgress
-                  ? 'Reading…'
-                  : receipt.scanMethod === 'SMART'
-                    ? 'Smart Scan again'
-                    : 'Smart Scan'}
-              </button>
-              {!smartScanConfigured() && (
-                <div className="ocr-error">
-                  Smart Scan is not configured. You can still use Offline Scan.
-                </div>
-              )}
-              {smartDiagnostics && (
-                <details className="diagnostics">
-                  <summary>Smart Scan connection diagnostics</summary>
-                  <pre>
-                    {[
-                      `Configuration present: ${smartDiagnostics.configured ? 'yes' : 'no'}`,
-                      `Supabase hostname: ${smartDiagnostics.hostname ?? 'not available'}`,
-                      `Function URL: ${smartDiagnostics.functionUrl ?? 'not available'}`,
-                      `Stage: ${smartDiagnostics.outcome ?? 'not attempted'}`,
-                      `Failure: ${smartDiagnostics.failure ?? 'none'}`,
-                      `HTTP status: ${smartDiagnostics.httpStatus ?? 'no response'}`,
-                    ].join('\n')}
-                  </pre>
-                </details>
-              )}
-              {smartProgress && (
-                <div className="progress" role="status">
-                  <span>{smartProgress}</span>
-                  <progress />
-                </div>
-              )}
-              <hr />
-              <p>
-                <b>Offline Scan</b>
-                <br />
-                <small>
-                  Runs receipt recognition locally in this browser. Nothing is
-                  sent to Gemini.
-                </small>
-              </p>
-              <button
-                className="secondary full"
-                disabled={Boolean(ocrProgress || smartProgress)}
+                disabled={Boolean(ocrProgress)}
                 onClick={() => void readReceipt()}
               >
                 {ocrProgress
                   ? 'Reading locally…'
                   : receipt.scanMethod === 'OFFLINE'
-                    ? 'Offline Scan again'
-                    : 'Use Offline Scan'}
+                    ? 'Scan again'
+                    : 'Scan receipt'}
               </button>
               {ocrProgress && (
                 <div className="progress" role="status">
@@ -457,18 +371,9 @@ export default function App() {
               {ocrError && (
                 <div className="ocr-error" role="alert">
                   {ocrError}
-                  <div>
-                    <button
-                      className="link"
-                      onClick={() => void readReceiptSmart()}
-                    >
-                      Retry Smart Scan
-                    </button>
-                    {' · '}
-                    <button className="link" onClick={() => void readReceipt()}>
-                      Use Offline Scan instead
-                    </button>
-                  </div>
+                  <button className="link" onClick={() => void readReceipt()}>
+                    Retry scan
+                  </button>
                 </div>
               )}
               {receipt.scanMethod === 'OFFLINE' && receipt.ocrDiagnostics && (

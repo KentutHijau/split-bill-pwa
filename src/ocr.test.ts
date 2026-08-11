@@ -97,4 +97,34 @@ describe('deterministic OCR preprocessing calculations', () => {
       '1 Vegetable Omelet Curry 16.50',
     );
   });
+  it('associates a vertically offset right-column amount with the nearest text baseline', () => {
+    const word = (text: string, x0: number, y0: number, height = 14): Word =>
+      ({ text, bbox: { x0, y0, x1: x0 + 50, y1: y0 + height } }) as Word;
+    const blocks = [
+      {
+        paragraphs: [
+          { lines: [{ words: [word('1', 20, 100), word('Cheese', 60, 100)] }] },
+        ],
+      },
+      {
+        paragraphs: [
+          {
+            lines: [{ words: [word('1', 20, 125), word('Chicken', 60, 125)] }],
+          },
+        ],
+      },
+      {
+        paragraphs: [
+          {
+            lines: [
+              { words: [word('2.00', 500, 107), word('2.70', 500, 132)] },
+            ],
+          },
+        ],
+      },
+    ] as Block[];
+    expect(reconstructReceiptRows(blocks)).toBe(
+      '1 Cheese 2.00\n1 Chicken 2.70',
+    );
+  });
 });
