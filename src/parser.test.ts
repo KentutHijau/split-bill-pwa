@@ -87,6 +87,13 @@ describe('Singapore OCR receipt parser', () => {
         'Mild',
         'Standard',
       ]);
+      expect(
+        r.items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0),
+      ).toBe(4420);
+      expect(
+        r.subtotal! +
+          r.adjustments.reduce((sum, adjustment) => sum + adjustment.amount, 0),
+      ).toBe(r.grandTotal);
     }
     expect(r.items.some((item) => /Service Charges/i.test(item.name))).toBe(
       false,
@@ -137,6 +144,18 @@ describe('Singapore OCR receipt parser', () => {
     expect(r.items.some((item) => item.name === 'Service Charges')).toBe(false);
     expect(r.possibleMissedLines).toEqual([]);
     expect(r).toMatchObject({ subtotal: 4420, grandTotal: 5300 });
+  });
+  it('preserves a quantity-prefixed item when the monetary cell is absent', () => {
+    const r = parseReceiptText(
+      'CAFE\nQTY ITEM NAME AMOUNT\n1 Fish Soup\n1 Tea 2.00\nSub Total 8.00\nGrand Total 8.00',
+    );
+    expect(r.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Fish Soup', lineTotal: null }),
+        expect.objectContaining({ name: 'Tea', lineTotal: 200 }),
+      ]),
+    );
+    expect(r.items.some((item) => item.lineTotal === 600)).toBe(false);
   });
   it.each(['Service Charges', 'Service Chgs', 'Svc Charges', 'Svc Chgs'])(
     'classifies plural service label %s before items',

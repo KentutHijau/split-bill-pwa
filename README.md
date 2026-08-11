@@ -1,12 +1,12 @@
 # Makan Split
 
-A friendly, mobile-first Singapore restaurant bill splitter. Smart Scan sends a receipt image through a Supabase Edge Function to Gemini for structured extraction; Offline Scan retains the existing local Tesseract workflow. Every result goes through editable review and deterministic integer-cent calculations.
+A friendly, mobile-first Singapore restaurant bill splitter. Receipt recognition runs locally with Tesseract.js, and every result goes through editable review and deterministic integer-cent calculations.
 
 ## Architecture
 
 - React + strict TypeScript on Vite, with a deliberately small dependency set.
 - All monetary values are signed integer cents. The pure calculation module uses deterministic equal splitting and largest-remainder proportional allocation, including the correct adjustment share for unclaimed items.
-- Smart Scan sends the image directly (never Tesseract text) to `parse-receipt`; Gemini extracts document facts but never controls financial calculations. Offline Scan lazy-loads Tesseract.js in a browser Web Worker.
+- Receipt scanning lazy-loads Tesseract.js in a browser Web Worker; receipt images and recognized text stay in the browser.
 - `BillRepository` isolates persistence. IndexedDB stores full bills and image `Blob`s; it is ready to be swapped for a Supabase implementation.
 - Vite PWA generates the manifest and service worker. Shared URL routes are explicitly excluded from navigation fallback caching so future live bill updates are not masked by stale data.
 
@@ -25,35 +25,6 @@ npm test          # deterministic financial tests
 npm run build     # production build
 npm run preview   # serve production build
 ```
-
-## Smart Scan setup, privacy and deployment
-
-Copy `.env.example` to `.env.local` and set browser-safe `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. The app builds and Offline Scan works when absent. **Never create `VITE_GEMINI_API_KEY`: `GEMINI_API_KEY` belongs only in Supabase Edge Function secrets.**
-
-Smart Scan uploads the image to the Makan Split Edge Function, which transmits it to Gemini. This phase does not intentionally persist it in Supabase Storage or server application storage. Google processes it subject to its API terms. Offline Scan runs Tesseract locally and sends nothing to Gemini (runtime assets can still be downloaded). Diagnostics belong only to Offline Scan.
-
-Deploy with:
-
-1. `supabase login` then `supabase link --project-ref <project-ref>`.
-2. Confirm the secret name without printing its value: `supabase secrets list --project-ref <project-ref>`. If absent, run `supabase secrets set GEMINI_API_KEY --project-ref <project-ref>` outside source control.
-3. Set exact origins: `supabase secrets set ALLOWED_ORIGINS=https://<username>.github.io --project-ref <project-ref>`. Origins omit repository paths; localhost:5173 is built in.
-4. Optionally set server-only `GEMINI_MODEL`; the default is `gemini-3.5-flash-lite`. For a short-lived request-isolation diagnosis, set `GEMINI_STRUCTURED_OUTPUT` to `none`, then `mime`, then `schema` (the default). `none` tests image generation without structured output, `mime` requests JSON without a schema, and `schema` sends the full receipt JSON Schema. Remove the diagnostic override after testing.
-5. Run `supabase functions deploy parse-receipt --no-verify-jwt --project-ref <project-ref>`.
-
-The public Pages app has no accounts, so JWT verification is disabled for this function. Origin, POST-only, MIME, 8 MiB, fixed upstream/model/prompt and timeout controls reduce abuse, but CORS can be forged outside a browser. Add gateway/WAF quotas or rate limiting before high-volume launch.
-
-Set the GitHub Actions repository variables `VITE_SUPABASE_URL` to `https://vsqvyfoizzjecvskyngn.supabase.co` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the browser-safe publishable key. The Pages workflow validates that both are present and that the URL is an `https://*.supabase.co` base URL before injecting them during the Vite build; it does not print their values. The resulting function URL is `https://vsqvyfoizzjecvskyngn.supabase.co/functions/v1/parse-receipt`. Both values are public browser configuration by design. Never configure `GEMINI_API_KEY` in GitHub or as `VITE_*`.
-
-For a non-sensitive connectivity check, send an `OPTIONS` request with the production Pages origin; a successful preflight returns 204 and the matching `Access-Control-Allow-Origin`, methods, and headers. No API key is required for this check:
-
-```sh
-curl -i -X OPTIONS 'https://vsqvyfoizzjecvskyngn.supabase.co/functions/v1/parse-receipt' \
-  -H 'Origin: https://kentuthijau.github.io' \
-  -H 'Access-Control-Request-Method: POST' \
-  -H 'Access-Control-Request-Headers: authorization,apikey,content-type'
-```
-
-The Smart Scan connection diagnostics disclose only configuration presence, hostname, function URL, failure stage, and HTTP status—never the key or receipt. Browsers intentionally expose CORS/preflight rejection and DNS/transport failure identically as a rejected `fetch`, so that category is reported as `network-or-cors`; use the preflight command and Edge Function logs to separate them. “Not configured” means the build key is absent; HTTP 403 commonly means `ALLOWED_ORIGINS` is not exact; 413/415 means size/type rejection.
 
 ## Try the workflow
 

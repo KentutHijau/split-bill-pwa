@@ -207,6 +207,36 @@ export function parseReceiptText(rawText: string): Receipt {
     itemLineIds.set(index, itemId);
     receipt.parseWarnings!.push(`Price not detected for item: ${name}`);
   });
+  // A quantity-prefixed row in the item table is still evidence for an item
+  // when its entire price cell disappeared. Preserve the null rather than
+  // dropping the row or reconciling it arithmetically from the subtotal.
+  lines.forEach((line, index) => {
+    if (
+      index >= subtotalIndex ||
+      structural.has(index) ||
+      itemLines.has(index) ||
+      metaLine.test(line) ||
+      modifierLine.test(line) ||
+      amountAtEnd.test(line) ||
+      !lines.slice(0, index).some((candidate) => itemHeaderLine.test(candidate))
+    )
+      return;
+    const match = line.match(/^\d{1,2}(?:\s*[xX])?\s+(.*[A-Za-z]{2}.*)$/);
+    if (!match) return;
+    const name = match[1].replace(/^[*¥￥|~^`'"“”]+\s*/, '').trim();
+    if (!name || /^[-–—_.]+$/.test(name)) return;
+    const itemId = id('item', receipt.items.length);
+    receipt.items.push({
+      id: itemId,
+      name,
+      quantity: Number(line.match(/^\d{1,2}/)?.[0] ?? 1),
+      unitPrice: null,
+      lineTotal: null,
+    });
+    itemLines.add(index);
+    itemLineIds.set(index, itemId);
+    receipt.parseWarnings!.push(`Price not detected for item: ${name}`);
+  });
   // Decoration/indentation plus no amount is structural evidence of an option,
   // not a zero-priced claimable item. Associate only with a preceding item.
   receipt.modifiers = [];

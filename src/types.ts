@@ -55,7 +55,7 @@ export interface Receipt {
   /** Non-claimable option text associated with the preceding priced item. */
   modifiers?: Array<{ text: string; itemId?: string }>;
   /** Extraction path used for the latest scan. */
-  scanMethod?: 'SMART' | 'OFFLINE';
+  scanMethod?: 'OFFLINE';
 }
 
 export interface ExtractedReceipt {
